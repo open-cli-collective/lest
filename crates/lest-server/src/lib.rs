@@ -50,6 +50,8 @@ pub struct Options {
 
 pub(crate) struct LiveRun {
     pub flow_id: String,
+    pub started_at: String,
+    pub environment: Option<String>,
     pub cancel: RunCancel,
     pub events: Vec<RunEvent>,
     pub done: bool,
@@ -191,7 +193,8 @@ async fn static_file(req: Request) -> Response {
     let mut resp = Response::new(Body::from(file.data.into_owned()));
     resp.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(mime).expect("mime"));
     if name.starts_with("assets/") {
-        resp.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=31536000, immutable"));
+        resp.headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=31536000, immutable"));
     } else {
         resp.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     }
@@ -212,9 +215,13 @@ mod tests {
     #[test]
     fn only_loopback_hosts_pass() {
         let mut h = HeaderMap::new();
-        for (host, ok) in
-            [("127.0.0.1:4100", true), ("localhost:4100", true), ("[::1]:4100", true), ("evil.example.com", false), ("127.0.0.1.evil.com:80", false)]
-        {
+        for (host, ok) in [
+            ("127.0.0.1:4100", true),
+            ("localhost:4100", true),
+            ("[::1]:4100", true),
+            ("evil.example.com", false),
+            ("127.0.0.1.evil.com:80", false),
+        ] {
             h.insert(header::HOST, HeaderValue::from_static(host));
             assert_eq!(is_loopback_host(&h), ok, "{host}");
         }

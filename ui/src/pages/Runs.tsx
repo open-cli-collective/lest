@@ -91,7 +91,7 @@ export function RunsPage() {
               {!results.length &&
                 running.map((r) => {
                   const live = getRun(r.runId);
-                  const started = live?.startedAtMs ?? null;
+                  const started = live?.startedAtMs ?? (Date.parse(r.startedAt) || null);
                   return (
                     <tr key={r.runId} className="running edge-running" onClick={() => open(r.runId)}>
                       <td>
@@ -106,7 +106,7 @@ export function RunsPage() {
                         </a>
                       </td>
                       <td className="id-cell">{r.runId}</td>
-                      <td>{live?.environment ?? ""}</td>
+                      <td>{live?.environment ?? r.environment ?? ""}</td>
                       <td title={started ? formatTime(started) : undefined}>{started ? timeAgo(started, now) : ""}</td>
                       <td className="num">{started ? formatDuration(now - started) : ""}</td>
                       <td className="num" />

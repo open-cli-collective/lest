@@ -183,7 +183,10 @@ async fn flows(State(s): State<Arc<AppState>>) -> Json<FlowsResponse> {
     let s2 = s.clone();
     let out = tokio::task::spawn_blocking(move || {
         let c = catalog(&project);
-        FlowsResponse { flows: c.flows.iter().map(|lf| summarize(lf, &c, &s2)).collect(), diagnostics: c.diagnostics.clone() }
+        FlowsResponse {
+            flows: c.flows.iter().map(|lf| summarize(lf, &c, &s2)).collect(),
+            diagnostics: c.diagnostics.clone(),
+        }
     })
     .await
     .expect("catalog task");
@@ -255,7 +258,15 @@ async fn start_run(State(s): State<Arc<AppState>>, Json(req): Json<StartRun>) ->
     let cancel = RunCancel::default();
     s.runs.lock().expect("lock").insert(
         run_id.clone(),
-        LiveRun { flow_id: req.flow_id.clone(), cancel: cancel.clone(), events: Vec::new(), done: false, started: Instant::now() },
+        LiveRun {
+            flow_id: req.flow_id.clone(),
+            started_at: runner::now_rfc3339(),
+            environment: req.environment.clone().or_else(|| lf.flow.default_environment.clone()),
+            cancel: cancel.clone(),
+            events: Vec::new(),
+            done: false,
+            started: Instant::now(),
+        },
     );
     let engine = Engine {
         project,
@@ -347,7 +358,7 @@ async fn runs(State(s): State<Arc<AppState>>, Query(q): Query<RunsQuery>) -> Jso
         .expect("lock")
         .iter()
         .filter(|(_, r)| !r.done && q.flow.as_ref().is_none_or(|f| f == &r.flow_id))
-        .map(|(id, r)| json!({"runId": id, "flowId": r.flow_id}))
+        .map(|(id, r)| json!({"runId": id, "flowId": r.flow_id, "startedAt": r.started_at, "environment": r.environment}))
         .collect();
     let store = s.store.clone();
     let runs = tokio::task::spawn_blocking(move || store.list(q.flow.as_deref(), q.limit.unwrap_or(100)))
@@ -383,7 +394,13 @@ async fn run(State(s): State<Arc<AppState>>, Path(id): Path<String>) -> AppResul
         }
     }
     let r = s.store.find(&id).map_err(|e| not_found(e.to_string()))?;
-    Ok(Json(RunResponse { run_id: r.run_id.clone(), flow_id: r.flow_id.clone(), done: true, events: vec![], report: Some(r) }))
+    Ok(Json(RunResponse {
+        run_id: r.run_id.clone(),
+        flow_id: r.flow_id.clone(),
+        done: true,
+        events: vec![],
+        report: Some(r),
+    }))
 }
 
 async fn run_file(

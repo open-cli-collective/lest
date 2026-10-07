@@ -32,7 +32,8 @@ pub fn open(command: &str, cwd: &Path) -> Result<String, String> {
         ("xterm", vec!["-e", "sh", "-c"]),
     ] {
         if which_ok(bin) {
-            let spawned = Command::new(bin).args(&args).arg(&keep_open).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+            let spawned =
+                Command::new(bin).args(&args).arg(&keep_open).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
             if spawned.is_ok() {
                 return Ok(bin.to_string());
             }
@@ -48,7 +49,11 @@ fn which_ok(bin: &str) -> bool {
 /// Shows a file or folder in the system file manager.
 pub fn reveal(path: &Path) -> Result<(), String> {
     let status = if cfg!(target_os = "macos") {
-        if path.is_dir() { Command::new("open").arg(path).status() } else { Command::new("open").arg("-R").arg(path).status() }
+        if path.is_dir() {
+            Command::new("open").arg(path).status()
+        } else {
+            Command::new("open").arg("-R").arg(path).status()
+        }
     } else if cfg!(windows) {
         Command::new("explorer").arg(format!("/select,{}", path.display())).status()
     } else {

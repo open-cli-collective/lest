@@ -324,7 +324,9 @@ impl BrowserDriver for NodeBrowser {
                 sink.line(stream, line);
             });
             tokio::pin!(proc);
-            let mut ticker = tokio::time::interval(Duration::from_millis(150));
+            // Short steps finish quickly; follow the events closely so the
+            // live view can attach while the page is still open.
+            let mut ticker = tokio::time::interval(Duration::from_millis(50));
             let res = loop {
                 tokio::select! {
                     r = &mut proc => break r,

@@ -243,9 +243,16 @@ async function main() {
   const track = async (page, role) => {
     pages.set(page, { role, openedAt: Date.now() - t0, closedAt: null });
     current = page;
+    let last = "";
     const report = async () => {
       const id = await targetId(context, page);
-      if (id) emit({ type: "page", targetId: id, url: page.url(), role });
+      const key = `${id} ${page.url()}`;
+      // One event per page and address: navigation and tracking can both
+      // report the same state.
+      if (id && key !== last) {
+        last = key;
+        emit({ type: "page", targetId: id, url: page.url(), role });
+      }
     };
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) report();

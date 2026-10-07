@@ -196,7 +196,7 @@ export interface StateResponse {
 }
 
 export interface RunsResponse {
-  running: { runId: string; flowId: string }[];
+  running: { runId: string; flowId: string; startedAt: string; environment: string | null }[];
   runs: RunSummary[];
 }
 

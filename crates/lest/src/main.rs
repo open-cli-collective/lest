@@ -875,6 +875,36 @@ fn cmd_secrets(ctx: &Ctx, command: SecretsCommand) -> Result<u8> {
     }
 }
 
+/// Opens the UI as a standalone window: a Chromium-family browser in app
+/// mode, with its own profile so it is a separate window and app.
+fn open_app_window(url: &str, profile: &Path) -> bool {
+    let app = format!("--app={url}");
+    let data = format!("--user-data-dir={}", profile.display());
+    if cfg!(target_os = "macos") {
+        for name in ["Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser"] {
+            if Path::new(&format!("/Applications/{name}.app")).is_dir() {
+                return std::process::Command::new("open")
+                    .args(["-na", name, "--args", &app, &data])
+                    .status()
+                    .is_ok_and(|s| s.success());
+            }
+        }
+        false
+    } else {
+        ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]
+            .into_iter()
+            .find(|b| which::which(b).is_ok())
+            .is_some_and(|b| {
+                std::process::Command::new(b)
+                    .args([&app, &data])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .is_ok()
+            })
+    }
+}
+
 async fn cmd_ui(ctx: &Ctx, a: UiArgs) -> Result<u8> {
     let roots = ctx.roots.clone();
     let project = ctx.project.clone();
@@ -890,7 +920,12 @@ async fn cmd_ui(ctx: &Ctx, a: UiArgs) -> Result<u8> {
     let url = server.url();
     eprintln!("lest ui: {url}");
     eprintln!("project: {}", ctx.project.root.display());
-    if !a.no_browser {
+    if a.app && open_app_window(&url, &ctx.roots.data_dir.join("ui-window")) {
+        eprintln!("opened in its own window");
+    } else if !a.no_browser {
+        if a.app {
+            eprintln!("no Chromium-family browser found for --app; opening a browser tab");
+        }
         let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
         if std::process::Command::new(opener).arg(&url).status().is_err() {
             eprintln!("open the address above in a browser");

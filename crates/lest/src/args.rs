@@ -101,8 +101,12 @@ pub struct UiArgs {
     #[arg(long, default_value_t = 0)]
     pub port: u16,
     /// Print the address instead of opening a browser.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "app")]
     pub no_browser: bool,
+    /// Open in its own window (a Chromium-family browser's app mode) instead
+    /// of a browser tab.
+    #[arg(long)]
+    pub app: bool,
 }
 
 #[derive(Debug, Args)]

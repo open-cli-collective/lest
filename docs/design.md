@@ -14,7 +14,7 @@ each. Behavior is specified in the reference docs (start with
 1. **A run is deterministic and reproducible.** Nothing a model says can
    change a run's outcome. AI sits around runs, never inside them.
 2. **One run model.** A suite is a flow whose steps call other flows. A demo
-   is a flow that records a browser step. Every surface (CLI, desktop, web
+   is a flow that records a browser step. Every surface (CLI, web UI,
    UI, notifications) consumes one event stream and one report format.
 3. **The core owns everything; the shells are thin.** The CLI and the UI
    call the same library. No behavior exists only in one shell.
@@ -37,7 +37,7 @@ crates/lest-core     flow spec, expressions, validation, runner, reports,
                      store, secrets, tool profiles, browser bridge, media,
                      AI provider, notifications
 crates/lest-server   local HTTP API + server-sent events + embedded UI
-crates/lest          the `lest` binary: CLI, `lest ui`, optional desktop shell
+crates/lest          the `lest` binary: CLI and `lest ui`
 ui/                  React + TypeScript UI (served by lest-server)
 harness/             the Node browser harness the runner launches
 examples/            a self-contained sample app and flows exercising every feature
@@ -46,28 +46,30 @@ examples/            a self-contained sample app and flows exercising every feat
 ### Server-first UI
 
 The UI is a web app served by `lest ui` on `127.0.0.1` and talks to the core
-over HTTP and server-sent events. The desktop app is a Tauri window that
-loads the same URL.
+over HTTP and server-sent events. `lest ui --app` opens it as its own window
+(a Chromium-family browser in app mode, with a separate profile).
 
-Why not Tauri IPC:
+Why not a desktop webview with IPC:
 
 - **One transport.** IPC commands plus hand-written TypeScript mirrors drift
-  from the Rust types. A small HTTP API with JSON types generated from the
-  Rust structs has one source of truth.
+  from the Rust types. One small HTTP API serves the UI, scripts and tests.
 - **The real app is testable.** Playwright can drive the actual UI in CI on
   Linux (WebKit webviews expose no automation protocol), so screenshots in
   docs and PRs come from the shipped UI, not from a separate fixture harness.
 - **Files are URLs.** Artifacts, screenshots and videos are served with range
   requests instead of base64 strings over IPC, so a 200 MB recording plays
   without loading into memory.
-- **The desktop shell is optional.** `cargo install` without the `desktop`
-  feature still gives a full UI in the browser; Linux servers and CI need no
-  webview libraries.
+- **No webview to build.** One binary with the UI embedded, on every
+  platform, with no webview libraries; CI builds and tests it on Linux. A
+  native shell can wrap the same URL later if a window manager integration
+  ever needs it; `--app` covers a standalone window today.
 
 The server binds loopback only, requires a per-launch random token (passed in
-the URL once, then held in an HttpOnly SameSite=Strict cookie), checks the
-`Host` header against loopback names to block DNS rebinding, and sets a strict
-Content-Security-Policy.
+the URL once, then held in an HttpOnly SameSite=Strict cookie named for the
+port), checks the `Host` header against loopback names to block DNS
+rebinding, accepts changes only from its own origin, serves run files in a
+sandbox, and sets a strict Content-Security-Policy. Holding the token is
+equivalent to running commands as the user ([ai.md](ai.md), Trust).
 
 ### Runner
 
@@ -226,8 +228,8 @@ implemented the same way.
 ### State and paths
 
 Config in the user config dir (`lest/config.yml`), run data in the user state
-dir (`lest/runs/<flow>/<run>/report.json` plus `artifacts/`), with a retention
-cap and `lest data purge`. Projects are directories with a `lest.yaml`; the UI
+dir (`lest/runs/<flow>/<run>/report.json` plus `artifacts/`), removed with
+`lest data prune --keep <n>` or `lest data purge`. Projects are directories with a `lest.yaml`; the UI
 opens projects instead of falling back to a global tests directory.
 
 ## Not built, on purpose

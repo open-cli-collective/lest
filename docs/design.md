@@ -14,8 +14,8 @@ each. Behavior is specified in the reference docs (start with
 1. **A run is deterministic and reproducible.** Nothing a model says can
    change a run's outcome. AI sits around runs, never inside them.
 2. **One run model.** A suite is a flow whose steps call other flows. A demo
-   is a flow that records a browser step. Every surface (CLI, web UI,
-   UI, notifications) consumes one event stream and one report format.
+   is a flow that records a browser step. Every surface (CLI, UI,
+   notifications) consumes one event stream and one report format.
 3. **The core owns everything; the shells are thin.** The CLI and the UI
    call the same library. No behavior exists only in one shell.
 4. **Values are data, never source text.** Template values reach a shell
@@ -231,8 +231,9 @@ implemented the same way.
 
 Config in the user config dir (`lest/config.yml`), run data in the user state
 dir (`lest/runs/<flow>/<run>/report.json` plus `artifacts/`), removed with
-`lest data prune --keep <n>` or `lest data purge`. Projects are directories with a `lest.yaml`; the UI
-opens projects instead of falling back to a global tests directory.
+`lest data prune --keep <n>` or `lest data purge`. Projects are directories
+with a `lest.yaml`; the UI opens projects instead of falling back to a global
+tests directory.
 
 ## Not built, on purpose
 

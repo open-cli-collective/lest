@@ -711,6 +711,8 @@ function useHandoff(status: AiStatus | null, agent: string, runId: string | null
       return;
     }
     let alive = true;
+    // The previous command must not be copied while the new one loads.
+    setHandoff(null);
     api.handoff(runId, stepId).then(
       (h) => alive && setHandoff(h),
       () => alive && setHandoff(null),

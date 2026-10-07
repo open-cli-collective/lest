@@ -124,7 +124,7 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
       timer.current = setTimeout(() => void save(next), TEXT_SAVE_DELAY_MS);
     } else void save(next);
   };
-  // Leaving the page saves an edit still waiting for its pause.
+  // Navigating to another page saves an edit still waiting for its pause.
   useEffect(
     () => () => {
       clearTimeout(timer.current);

@@ -77,6 +77,10 @@ pub enum EventBody {
     /// Post-production of a demo recording.
     #[serde(rename_all = "camelCase")]
     DemoProgress { message: String },
+    /// A notification was sent after the run (or failed to send). These
+    /// are the only events that follow `run_finished`.
+    #[serde(rename_all = "camelCase")]
+    Notified { ok: bool, message: String },
     #[serde(rename_all = "camelCase")]
     RunFinished { result: RunResult, duration_ms: u64, error: Option<String>, report_path: String },
 }

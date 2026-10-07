@@ -34,6 +34,10 @@ pub enum Command {
     },
     /// Run the cleanups a past run recorded but did not run.
     Cleanup(CleanupArgs),
+    /// List the flows affected by changes since a git ref.
+    Affected(AffectedArgs),
+    /// Zip a run's report and artifacts, with a manifest of checksums.
+    Bundle(BundleArgs),
     /// Create a lest.yaml and an example flow.
     Init(InitArgs),
     /// Check that tools, browsers and settings are ready.
@@ -198,6 +202,25 @@ pub struct CleanupArgs {
     /// Run without asking.
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AffectedArgs {
+    /// Compare against this ref (its merge base with HEAD).
+    #[arg(long, default_value = "origin/main")]
+    pub base: String,
+    /// Print only flow ids, one per line (for `xargs -n1 lest run`).
+    #[arg(long)]
+    pub id: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct BundleArgs {
+    /// Run id or unique prefix.
+    pub run: String,
+    /// Where to write the zip (default: lest-<flow>-<run>.zip).
+    #[arg(short = 'o', long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

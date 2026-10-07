@@ -155,6 +155,10 @@ impl Progress {
                 eprintln!("  {} {tool} needs a sign-in: {command}", s.yellow("!"));
             }
             EventBody::DemoProgress { message } => eprintln!("  {}", s.dim(message)),
+            EventBody::Notified { ok, message } => {
+                let glyph = if *ok { s.green("✓") } else { s.yellow("!") };
+                eprintln!("  {glyph} {}", s.dim(message));
+            }
             _ => {}
         }
     }

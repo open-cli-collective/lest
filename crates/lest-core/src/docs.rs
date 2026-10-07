@@ -36,11 +36,12 @@ The full references follow.
 const FLOW_FORMAT: &str = include_str!("../../../docs/flow-format.md");
 const BROWSER: &str = include_str!("../../../docs/browser.md");
 const DEMOS: &str = include_str!("../../../docs/demos.md");
+const CI: &str = include_str!("../../../docs/ci.md");
 
 /// The agent guide: rules first, then the reference docs.
 pub fn agent_guide() -> String {
     let mut s = String::from(GUIDE);
-    for doc in [FLOW_FORMAT, BROWSER, DEMOS] {
+    for doc in [FLOW_FORMAT, BROWSER, DEMOS, CI] {
         s.push_str("\n\n---\n\n");
         s.push_str(doc);
     }

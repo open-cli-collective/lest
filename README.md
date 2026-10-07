@@ -75,8 +75,10 @@ lest runs list
 - **Cleanup:** steps register commands that undo them; they run after the
   flow, on failure and on cancel, and can be replayed later with
   `lest cleanup <run>`.
-- **Reports:** a JSON report per run (`lest schema report` describes it) and
-  JUnit XML for CI.
+- **Reports:** a JSON report per run (`lest schema report` describes it),
+  JUnit XML, and `lest bundle` evidence zips with checksums.
+- **CI:** `lest affected --base origin/main` lists the flows a change touches;
+  webhook notifications (JSON or Slack-compatible) after each run.
 
 - **Optional AI:** off by default. With a provider of your choice, failed
   steps get a plain-words explanation next to their deterministic headline,
@@ -102,6 +104,7 @@ lest run everything
 - [Flow format](docs/flow-format.md)
 - [Browser steps](docs/browser.md)
 - [Demos](docs/demos.md)
+- [Running in CI](docs/ci.md)
 - [UI](docs/ui.md)
 - [AI (optional)](docs/ai.md)
 - [Design](docs/design.md): why Lest works the way it does

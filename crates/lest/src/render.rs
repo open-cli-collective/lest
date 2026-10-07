@@ -133,7 +133,7 @@ impl Progress {
                 let status = step.status.unwrap_or(StepStatus::Pending);
                 let (glyph, detail) = match status {
                     StepStatus::Passed => (s.green("✓"), String::new()),
-                    StepStatus::Skipped => (s.dim("–"), s.dim(step.error.as_deref().unwrap_or("skipped"))),
+                    StepStatus::Skipped => (s.dim("○"), s.dim(step.error.as_deref().unwrap_or("skipped"))),
                     StepStatus::Failed | StepStatus::Errored => {
                         (s.red("✗"), s.red(step.headline.as_deref().or(step.error.as_deref()).unwrap_or("failed")))
                     }

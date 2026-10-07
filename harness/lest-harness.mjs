@@ -207,6 +207,8 @@ function makeUi(getPage, recording) {
       return (await loc.innerText()).trim();
     },
     async dwell(ms) {
+      // A deliberate hold: the cut keeps all of it.
+      if (recording) emit({ type: "action", name: "hold", ms });
       await sleep(ms);
     },
   };

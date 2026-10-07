@@ -224,8 +224,10 @@ cleanups: the whole process group gets TERM, and whatever is still running
 already passes before starting, Lest uses the running instance instead
 (`reuse: false` to always start one), so a dev server you keep running is
 used as is. A service declared with the same id in several called flows starts
-once per run, and runs that use the same service id take turns, so one run
-never stops a service another run is using. Its output is kept as `services/service-<id>.log` in the run's
+once per run, and runs that need the same service take turns (keyed by the
+ready URL's host and port, or by project and id), so one run never stops a
+service another run is using. Locks live in the user's cache directory
+(`LEST_LOCK_DIR` overrides it). Its output is kept as `services/service-<id>.log` in the run's
 artifacts, with secret values redacted. Services receive vars (with the
 environment applied), `LEST_PROJECT_DIR` and `LEST_RUN_DIR`; services of the
 flow being run also receive its inputs. A called flow's services start

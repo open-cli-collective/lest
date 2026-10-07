@@ -49,6 +49,8 @@ pub struct Chapter {
 #[derive(Debug, Clone)]
 pub struct Produced {
     pub video: PathBuf,
+    /// Every labeled beat, whether or not its still could be taken.
+    pub chapter_list: Vec<Chapter>,
     pub chapters: Option<PathBuf>,
     pub beat_sheet: Option<PathBuf>,
     pub stills: Vec<(Chapter, PathBuf)>,
@@ -72,39 +74,66 @@ impl Segment {
     }
 }
 
-/// The composed timeline before cutting: main video, with each popup
-/// inserted for the time it was open. Times are relative to the main
-/// page's start. `durations` are the measured lengths of each video.
+/// The composed timeline before cutting: the main video, with whichever
+/// popup was opened most recently shown while it is open (so a popup opened
+/// from a popup takes over, and the first resumes when it closes). Times are
+/// relative to the main page's start. `durations` are the measured lengths
+/// of each video.
 pub fn compose(videos: &[Video], durations: &[u64]) -> Vec<Segment> {
     let Some(main) = videos.iter().position(|v| v.role == "main") else { return vec![] };
     let t0 = videos[main].opened_at_ms;
     let main_len = durations[main];
-    let mut popups: Vec<(usize, u64, u64)> = videos
+    struct Popup {
+        source: usize,
+        open: u64,
+        close: u64,
+        /// Where the popup's video starts on the timeline. A recording
+        /// starts a little after the window opens, but ends when it closes,
+        /// so it is anchored on its end when the close time is known.
+        video_start: u64,
+    }
+    let popups: Vec<Popup> = videos
         .iter()
         .enumerate()
         .filter(|(i, v)| *i != main && v.role != "main")
-        .map(|(i, v)| {
-            let start = v.opened_at_ms.saturating_sub(t0);
-            let end = v.closed_at_ms.map(|c| c.saturating_sub(t0)).unwrap_or(start + durations[i]);
-            (i, start.min(main_len), end.min(start + durations[i]).min(main_len))
+        .filter_map(|(i, v)| {
+            let open = v.opened_at_ms.saturating_sub(t0).min(main_len);
+            let (close, video_start) = match v.closed_at_ms {
+                Some(c) => {
+                    let close = c.saturating_sub(t0).min(main_len);
+                    (close, close.saturating_sub(durations[i]))
+                }
+                None => ((open + durations[i]).min(main_len), open),
+            };
+            (close > open).then_some(Popup { source: i, open, close, video_start })
         })
-        .filter(|(_, s, e)| e > s)
         .collect();
-    popups.sort_by_key(|p| p.1);
-    let mut out = Vec::new();
-    let mut cursor = 0;
-    for (i, start, end) in popups {
-        if start < cursor {
-            continue; // overlapping popups: keep the first
-        }
-        if start > cursor {
-            out.push(Segment { source: main, from_ms: cursor, to_ms: start });
-        }
-        out.push(Segment { source: i, from_ms: 0, to_ms: end - start });
-        cursor = end;
+    let mut bounds: Vec<u64> = vec![0, main_len];
+    for p in &popups {
+        bounds.push(p.open);
+        bounds.push(p.close);
     }
-    if cursor < main_len {
-        out.push(Segment { source: main, from_ms: cursor, to_ms: main_len });
+    bounds.sort_unstable();
+    bounds.dedup();
+    let mut out: Vec<Segment> = Vec::new();
+    for w in bounds.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let active = popups.iter().filter(|p| p.open <= a && p.close >= b).max_by_key(|p| p.open);
+        let seg = match active {
+            Some(p) => Segment {
+                source: p.source,
+                from_ms: a.saturating_sub(p.video_start),
+                to_ms: b.saturating_sub(p.video_start).min(durations[p.source]),
+            },
+            None => Segment { source: main, from_ms: a, to_ms: b },
+        };
+        if seg.to_ms <= seg.from_ms {
+            continue;
+        }
+        match out.last_mut() {
+            Some(last) if last.source == seg.source && last.to_ms == seg.from_ms => last.to_ms = seg.to_ms,
+            _ => out.push(seg),
+        }
     }
     out
 }
@@ -247,13 +276,20 @@ pub fn produce(
     let total: u64 = segments.iter().map(Segment::len).sum();
     let mut points: Vec<u64> = beats.iter().map(|b| b.at_ms.saturating_sub(t0)).collect();
     points.extend(actions.iter().map(|a| a.saturating_sub(t0)));
-    // Popup openings and closings are moments too.
-    let mut acc = 0;
-    for s in &segments {
-        points.push(acc);
-        acc += s.len();
-    }
-    let ranges = keep_ranges(&points, total, opts);
+    // Without beats or actions there is nothing to anchor a cut on: keep
+    // the whole take. Otherwise popup openings and closings are moments too.
+    let ranges = if points.is_empty() {
+        vec![(0, total)]
+    } else {
+        let mut at = 0;
+        for (i, seg) in segments.iter().enumerate() {
+            if i > 0 {
+                points.push(at);
+            }
+            at += seg.len();
+        }
+        keep_ranges(&points, total, opts)
+    };
     let pieces = plan_pieces(&segments, &ranges);
     if pieces.is_empty() {
         return Err("nothing to keep in the recording".into());
@@ -285,6 +321,8 @@ pub fn produce(
                 main.path.clone(),
                 "-frames:v".into(),
                 "1".into(),
+                "-update".into(),
+                "1".into(),
                 still.display().to_string(),
             ])
             .is_ok();
@@ -305,7 +343,10 @@ pub fn produce(
                 ]);
                 let bg = next_input;
                 next_input += 1;
-                let target_h = ((h as f64 * 0.85).min(ph as f64 * 1.6) as u32) & !1;
+                // The window as recorded, never larger than the frame.
+                let (pw, ph) = (pw.min(w), ph.min(h));
+                let factor = (w as f64 * 0.9 / pw as f64).min(h as f64 * 0.85 / ph as f64).min(1.6);
+                let target_h = ((ph as f64 * factor) as u32).max(2) & !1;
                 filter.push_str(&format!(
                     "[{bg}:v]scale={w}:{h},boxblur=10:2,eq=brightness=-0.10:saturation=0.6,setsar=1[bg{i}];\
 [{}:v]{trim},crop={pw}:{ph}:0:0,scale=-2:{target_h},pad=iw+2:ih+2:1:1:color=0x00000040[fg{i}];\
@@ -341,19 +382,11 @@ pub fn produce(
         "+faststart".into(),
     ]);
     args.push(video.display().to_string());
-    let cleanup_stills = |dir: &Path| {
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                if e.file_name().to_string_lossy().starts_with("popup-background-") {
-                    let _ = std::fs::remove_file(e.path());
-                }
-            }
-        }
-    };
-    let _ = std::fs::write(out_dir.join("cut-command.txt"), format!("{pieces:?}\nffmpeg {}\n", args.join(" ")));
-    let encoded = run_ffmpeg(&args);
-    cleanup_stills(out_dir);
-    encoded?;
+    // The exact command, shell-quoted, to reproduce or adjust the cut (the
+    // popup backgrounds it reads stay next to it).
+    let quoted: Vec<String> = args.iter().map(|a| shell_quote(a)).collect();
+    let _ = std::fs::write(out_dir.join("cut-command.txt"), format!("ffmpeg {}\n", quoted.join(" ")));
+    run_ffmpeg(&args)?;
     let duration = duration_ms(&video).unwrap_or_else(|_| ranges.iter().map(|(a, b)| b - a).sum());
 
     let chapters: Vec<Chapter> = beats
@@ -371,6 +404,7 @@ pub fn produce(
         video,
         chapters: None,
         beat_sheet: None,
+        chapter_list: chapters.clone(),
         stills: Vec::new(),
         duration_ms: duration,
         raw_duration_ms: total,
@@ -395,6 +429,8 @@ pub fn produce(
             "1".into(),
             "-q:v".into(),
             "3".into(),
+            "-update".into(),
+            "1".into(),
             still.display().to_string(),
         ];
         if run_ffmpeg(&args).is_ok() {
@@ -409,12 +445,15 @@ pub fn produce(
             args.push("-i".into());
             args.push(s.display().to_string());
         }
+        // Tiles keep the video's aspect ratio.
+        let tile_h = ((640.0 * h as f64 / w as f64) as u32).max(2) & !1;
         let mut f = String::new();
         for i in 0..produced.stills.len() {
-            f.push_str(&format!("[{i}:v]scale=640:-2[s{i}];"));
+            f.push_str(&format!("[{i}:v]scale=640:{tile_h}[s{i}];"));
         }
         let n = produced.stills.len();
-        let layout: Vec<String> = (0..n).map(|i| format!("{}_{}", (i % cols) * 640, (i / cols) * 360)).collect();
+        let layout: Vec<String> =
+            (0..n).map(|i| format!("{}_{}", (i % cols) * 640, (i / cols) as u32 * tile_h)).collect();
         if n == 1 {
             f.push_str("[s0]null[out]");
         } else {
@@ -432,6 +471,8 @@ pub fn produce(
             "1".into(),
             "-q:v".into(),
             "3".into(),
+            "-update".into(),
+            "1".into(),
         ]);
         args.push(sheet.display().to_string());
         if run_ffmpeg(&args).is_ok() {
@@ -439,6 +480,14 @@ pub fn produce(
         }
     }
     Ok(produced)
+}
+
+fn shell_quote(s: &str) -> String {
+    if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:+,".contains(c)) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
 }
 
 fn probe_size(path: &Path) -> Option<(u32, u32)> {
@@ -468,12 +517,31 @@ mod tests {
     fn popups_replace_the_main_video_while_open() {
         let videos = [v("main", 100, None), v("popup", 3100, Some(5100))];
         let segs = compose(&videos, &[8000, 2100]);
+        // The popup's 2.1s video ends when it closes, so it starts 0.1s
+        // into its 2s window.
         assert_eq!(
             segs,
             vec![
                 Segment { source: 0, from_ms: 0, to_ms: 3000 },
-                Segment { source: 1, from_ms: 0, to_ms: 2000 },
+                Segment { source: 1, from_ms: 100, to_ms: 2100 },
                 Segment { source: 0, from_ms: 5000, to_ms: 8000 },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_popup_opened_from_a_popup_takes_over_then_hands_back() {
+        // Main 0..10s; popup A open 2..8s; popup B (from A) open 4..6s.
+        let videos = [v("main", 0, None), v("popup", 2000, Some(8000)), v("popup", 4000, Some(6000))];
+        let segs = compose(&videos, &[10_000, 6000, 2000]);
+        assert_eq!(
+            segs,
+            vec![
+                Segment { source: 0, from_ms: 0, to_ms: 2000 },
+                Segment { source: 1, from_ms: 0, to_ms: 2000 },
+                Segment { source: 2, from_ms: 0, to_ms: 2000 },
+                Segment { source: 1, from_ms: 4000, to_ms: 6000 },
+                Segment { source: 0, from_ms: 8000, to_ms: 10_000 },
             ]
         );
     }

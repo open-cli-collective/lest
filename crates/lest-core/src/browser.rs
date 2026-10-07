@@ -92,6 +92,9 @@ enum HarnessEvent {
     #[serde(rename_all = "camelCase")]
     Action {
         at_ms: u64,
+        /// A hold's length: the cut keeps the whole stretch.
+        #[serde(default)]
+        ms: Option<u64>,
     },
 }
 
@@ -261,7 +264,18 @@ fn apply(line: &str, call: &BrowserCall<'_>, cdp_port: Option<u16>, out: &mut Co
             out.videos.push(Video { path, role, opened_at_ms, closed_at_ms, size });
         }
         HarnessEvent::Session {} => {}
-        HarnessEvent::Action { at_ms } => out.actions.push(at_ms),
+        HarnessEvent::Action { at_ms, ms } => {
+            out.actions.push(at_ms);
+            // Points one second apart through a hold, so no stretch of it
+            // reads as idle to the cut.
+            if let Some(ms) = ms {
+                let mut t = at_ms;
+                while t < at_ms + ms {
+                    t += 1000;
+                    out.actions.push(t.min(at_ms + ms));
+                }
+            }
+        }
     }
 }
 

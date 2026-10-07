@@ -76,30 +76,41 @@ attaches everything to the step and to the run report's `demo` section:
 | `demo/beat-NN-<marker>.jpg` | A still of each labeled beat, taken just after it. |
 | `demo/beat-sheet.jpg` | The stills side by side, for review at a glance. |
 | `video/page@*.webm` | The raw recordings (`Recording`, and `Recording (popup)` per popup). |
-| `demo/cut-command.txt` | The exact ffmpeg command, to reproduce or adjust the cut. |
+| `demo/cut-command.txt` | The exact ffmpeg command, shell-quoted, to reproduce or adjust the cut (kept next to the cut with the popup backgrounds it reads; not attached as an artifact). |
 
 How the cut is made:
 
 - **Popups in place.** A popup's recording replaces the main video for the
   time it was open, cropped to the popup's window and centered over a dimmed
   still of the page that opened it.
-- **Waits removed.** Every user action (click, fill, select, hover, press,
-  goto) and every beat is a moment to keep. Any stretch longer than `maxGap`
-  without one keeps only `keep` after the last moment and resumes just before
-  the next, so loading and syncing disappear while every action stays.
+- **Waits removed.** Every user action through `ui` (click, fill, select,
+  hover, press, goto), every beat and every deliberate hold (`ui.dwell`, the
+  `wait` action) is a moment to keep. Any stretch longer than `maxGap` without
+  one keeps only `keep` after the last moment and resumes just before the
+  next, so loading and syncing disappear while every action stays. A take
+  with no actions or beats at all is kept whole. Actions taken directly on
+  `page` are not seen by the cut; use `ui` for anything that should stay on
+  camera.
 - **Context and payoff.** The cut opens 1.5 seconds before the first moment
   and ends 2.5 seconds after the last.
 
+- **Popups in front.** When a popup opens another popup (a sign-in, then a
+  verification step), the newest one is shown, and the first returns when it
+  closes.
+
 Without ffmpeg, the raw recording is the deliverable and the run reports a
-warning. `lest doctor` checks for it.
+warning. `lest doctor` checks for it. Every recorded step that passes gets
+its own cut attached to it; the run report's `demo` section describes the
+last one.
 
 ## Recording well
 
 - **Sign in off camera.** Call a flow that signs in with `saveSession`, and
   record with `session`. The login, and any credentials, never appear.
 - **Hold shots on purpose.** `ui.dwell(ms)` (or the `wait` action) after a
-  beat gives the viewer time to read. The cut never removes time right after
-  an action or beat.
+  beat gives the viewer time to read; the cut keeps the whole hold. Without a
+  hold, the cut keeps `keep` (1.5 seconds by default) after an action or
+  beat.
 - **Wait for the real content.** A screen that renders placeholders first
   satisfies a selector before the data arrives; wait for the data.
 - **Secrets are filled, not typed.** A value that holds a secret is filled at

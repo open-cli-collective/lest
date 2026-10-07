@@ -223,6 +223,24 @@ impl Frame<'_> {
     }
 }
 
+/// The lock a service holds: its ready URL's host and port when it has one
+/// (that is what two runs would fight over), else the project and the id.
+fn service_lock(svc: &crate::spec::Service, project: &Path) -> String {
+    let addr = svc.ready.http.as_deref().and_then(|u| {
+        let rest = u.split("://").nth(1)?;
+        let host_port = rest.split('/').next()?;
+        (!host_port.contains("${{")).then(|| host_port.to_string())
+    });
+    match addr {
+        Some(a) => format!("service-{a}"),
+        None => {
+            use sha2::{Digest, Sha256};
+            let h = hex::encode(&Sha256::digest(project.display().to_string().as_bytes())[..4]);
+            format!("service-{h}-{}", svc.id)
+        }
+    }
+}
+
 /// A flow's vars with an environment applied.
 fn resolve_vars(flow: &Flow, environment: Option<&str>) -> Result<Values, String> {
     let mut vars: Values = flow.vars.iter().map(|(k, v)| (k.clone(), v.to_json())).collect();
@@ -534,7 +552,7 @@ pub async fn execute_with_id(
     let mut resources: Vec<String> = flows.iter().flat_map(|f| f.flow.resources.iter().cloned()).collect();
     // A service is owned by one run at a time: another run reusing it would
     // lose it when the owner stops it.
-    resources.extend(flows.iter().flat_map(|f| f.flow.services.iter().map(|s| format!("service-{}", s.id))));
+    resources.extend(flows.iter().flat_map(|f| f.flow.services.iter().map(|s| service_lock(s, &engine.project.root))));
     resources.sort();
     resources.dedup();
     let locks = {
@@ -1365,8 +1383,9 @@ impl<'e> Runner<'e> {
                 out.video = add(&p.video, "Demo video");
                 out.chapters_vtt = p.chapters.as_deref().and_then(|c| add(c, "Chapters"));
                 out.beat_sheet = p.beat_sheet.as_deref().and_then(|b| add(b, "Beat sheet"));
-                for (c, still) in &p.stills {
-                    let rel = add(still, &c.label);
+                for c in &p.chapter_list {
+                    let still = p.stills.iter().find(|(sc, _)| sc.marker == c.marker && sc.at_ms == c.at_ms);
+                    let rel = still.and_then(|(_, path)| add(path, &c.label));
                     out.chapters.push(crate::report::DemoChapter {
                         marker: c.marker.clone(),
                         label: c.label.clone(),

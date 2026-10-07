@@ -6,6 +6,14 @@
 //
 // Starts no server. Triggers runs through the API and waits for each state
 // before capturing. Writes PNGs to docs/images/ at 2x.
+//
+// The AI screenshots need a custom command provider, a program that reads a
+// prompt on stdin and prints an explanation:
+//
+//   LEST_UI_AI_COMMAND=/path/to/program npm run screenshots
+//
+// Without it they are skipped. The script turns AI off for the other images
+// and restores the AI settings it found when it ends.
 
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -69,8 +77,20 @@ async function go(page, path) {
   }, path);
 }
 
+const putAi = (ai) => api("/settings/ai", { method: "PUT", body: JSON.stringify(ai) });
+
 async function main() {
   await mkdir(outDir, { recursive: true });
+  const original = (await api("/settings")).ai;
+  try {
+    await putAi({ provider: "none" });
+    await capture();
+  } finally {
+    await putAi(original);
+  }
+}
+
+async function capture() {
   const browser = await chromium.launch();
   const light = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2, colorScheme: "light" });
   const page = await open(light);
@@ -138,6 +158,28 @@ async function main() {
   await dpage.click('.step.open [role="tab"]:has-text("Artifacts")');
   await dpage.waitForSelector(".step.open .thumb img");
   await shot(dpage, "flow-failed-dark.png");
+
+  const aiCommand = process.env.LEST_UI_AI_COMMAND;
+  if (aiCommand) {
+    // A fresh page so the AI settings are read again.
+    const apage = await open(light);
+    await go(apage, "/settings");
+    await apage.click('[aria-label="AI provider"] [role="radio"]:has-text("Custom command")');
+    await apage.fill("#ai-command", aiCommand);
+    await apage.waitForSelector('.settings-status:has-text("Using")');
+    await apage.waitForSelector('.settings-status .saved:has-text("Saved")');
+    await shot(apage, "settings-ai.png");
+
+    await go(apage, "/flows/wrong-password");
+    await apage.waitForSelector('.explain-marker:has-text("Written by")', { timeout: 120_000 });
+    await apage.click('.step.open [role="tab"]:has-text("Artifacts")');
+    await apage.waitForSelector(".step.open .thumb img");
+    await apage.click('.explain-actions [aria-haspopup="menu"]');
+    await apage.waitForSelector('.menu [role="menuitem"]:has-text("Open in agent")');
+    await shot(apage, "flow-failed-ai.png");
+  } else {
+    console.log("LEST_UI_AI_COMMAND is not set; skipping the AI screenshots");
+  }
 
   await browser.close();
 }

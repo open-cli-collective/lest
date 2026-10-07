@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, fileUrl } from "../api";
 import { ArtifactGrid } from "../components/RunView";
 import { IconDownload, IconFile } from "../components/icons";
@@ -32,12 +32,12 @@ function deliverable(run: RunState): Deliverable {
   const extras: Deliverable["extras"] = [];
   let video: Deliverable["video"] = null;
   if (demo?.video) {
-    video = { path: demo.video, label: "Demo video", chapters: demo.chapters ?? null };
+    video = { path: demo.video, label: "Demo video", chapters: demo.chaptersVtt ?? null };
     if (demo.rawVideo) extras.push({ label: "Raw recording", path: demo.rawVideo });
   } else if (recording) {
     video = { path: recording.path, label: "Recording", chapters: null };
   }
-  if (demo?.chapters) extras.push({ label: "Chapters (WebVTT)", path: demo.chapters });
+  if (demo?.chaptersVtt) extras.push({ label: "Chapters (WebVTT)", path: demo.chaptersVtt });
   if (demo?.beatSheet) extras.push({ label: "Beat sheet", path: demo.beatSheet });
   for (const a of arts) {
     if (a.mime.startsWith("video/") && a.path !== video?.path) extras.push({ label: a.label, path: a.path, bytes: a.bytes });
@@ -75,6 +75,7 @@ export function DemoPage({ id }: { id: string }) {
 function DemoBody({ flow, runId }: { flow: FlowDetail; runId: string | null }) {
   const { run } = useRun(runId);
   const [image, setImage] = useState<{ src: string; caption: string } | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const live = run ? isLive(run) : false;
   const now = useNow(250, live);
   const seen = run ? runBeats(run) : [];
@@ -98,7 +99,7 @@ function DemoBody({ flow, runId }: { flow: FlowDetail; runId: string | null }) {
   } else if (run && d?.video) {
     stage = (
       <div className="demo-video">
-        <video controls preload="metadata" src={fileUrl(run.runId, d.video.path)}>
+        <video ref={videoRef} controls preload="metadata" src={fileUrl(run.runId, d.video.path)}>
           {d.video.chapters && <track kind="chapters" src={fileUrl(run.runId, d.video.chapters)} default />}
         </video>
       </div>
@@ -165,13 +166,33 @@ function DemoBody({ flow, runId }: { flow: FlowDetail; runId: string | null }) {
             <ol className="story big">
               {beats.map((b) => {
                 const at = seen.find((s) => s.marker === b.marker);
+                // In a finished cut, a chapter's time is where it falls in
+                // the video, and choosing it plays from there.
+                const chapter = !live && d?.video?.chapters ? run?.report?.demo?.chapters?.find((c) => c.marker === b.marker) : undefined;
+                const seek = () => {
+                  const v = videoRef.current;
+                  if (v && chapter) {
+                    v.currentTime = chapter.atMs / 1000;
+                    void v.play();
+                  }
+                };
                 return (
                   <li
                     key={b.marker}
                     className={`${at ? "lit" : ""}${live && b.marker === lastLit ? " current" : ""}`}
                   >
-                    {b.label}
-                    {at && <span className="at">{clock(at.atMs)}</span>}
+                    {chapter ? (
+                      <button type="button" className="linklike" onClick={seek} title="Play from here">
+                        {b.label}
+                      </button>
+                    ) : (
+                      b.label
+                    )}
+                    {chapter ? (
+                      <span className="at">{clock(chapter.atMs)}</span>
+                    ) : (
+                      at && <span className="at">{clock(at.atMs)}</span>
+                    )}
                   </li>
                 );
               })}

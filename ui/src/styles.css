@@ -2113,3 +2113,20 @@ table.runs tr.running td {
   object-fit: contain;
   object-position: center top;
 }
+
+/* A button that reads as text in a list (demo chapters). */
+.linklike {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.linklike:hover {
+  text-decoration-color: currentColor;
+}

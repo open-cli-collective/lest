@@ -76,11 +76,21 @@ export interface CleanupReport {
   error?: string;
 }
 
+export interface DemoChapter {
+  marker: string;
+  label: string;
+  /** Milliseconds into the cut. */
+  atMs: number;
+  still?: string;
+}
+
 export interface DemoReport {
   video?: string;
   rawVideo?: string;
-  chapters?: string;
+  chaptersVtt?: string;
+  chapters?: DemoChapter[];
   beatSheet?: string;
+  step?: string;
   durationMs?: number;
   rawDurationMs?: number;
   error?: string;

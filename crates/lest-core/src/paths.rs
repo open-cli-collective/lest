@@ -12,6 +12,10 @@ use std::path::{Path, PathBuf};
 pub struct StateRoots {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
+    /// Resource and service locks. They guard things every Lest process on
+    /// the machine shares (ports, accounts), so the standard location does
+    /// not follow `LEST_DATA_DIR`.
+    pub locks_dir: PathBuf,
 }
 
 impl StateRoots {
@@ -29,12 +33,18 @@ impl StateRoots {
             Some(p) => absolute("LEST_DATA_DIR", PathBuf::from(p))?,
             None => default_data_dir()?,
         };
-        Ok(StateRoots { config_dir, data_dir })
+        let locks_dir = match std::env::var_os("LEST_LOCK_DIR") {
+            Some(p) => absolute("LEST_LOCK_DIR", PathBuf::from(p))?,
+            None => {
+                dirs::cache_dir().ok_or_else(|| anyhow::anyhow!("no user cache directory"))?.join("lest").join("locks")
+            }
+        };
+        Ok(StateRoots { config_dir, data_dir, locks_dir })
     }
 
     /// Roots under one directory (tests, `--data-dir`).
     pub fn under(dir: &Path) -> StateRoots {
-        StateRoots { config_dir: dir.join("config"), data_dir: dir.join("data") }
+        StateRoots { config_dir: dir.join("config"), data_dir: dir.join("data"), locks_dir: dir.join("locks") }
     }
 
     pub fn runs_dir(&self) -> PathBuf {
@@ -44,7 +54,7 @@ impl StateRoots {
         self.data_dir.join("sessions")
     }
     pub fn locks_dir(&self) -> PathBuf {
-        self.data_dir.join("locks")
+        self.locks_dir.clone()
     }
     pub fn ai_dir(&self) -> PathBuf {
         self.data_dir.join("ai")

@@ -680,8 +680,8 @@ export function ArtifactGrid({
         }
         if (a.mime.startsWith("video/")) {
           const chapters =
-            report?.demo?.chapters && (report.demo.video === a.path || report.demo.rawVideo === a.path)
-              ? fileUrl(runId, report.demo.chapters)
+            report?.demo?.chaptersVtt && report.demo.video === a.path
+              ? fileUrl(runId, report.demo.chaptersVtt)
               : null;
           return (
             <div key={a.path} className="video-art">

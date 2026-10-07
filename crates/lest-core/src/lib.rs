@@ -1,7 +1,9 @@
 //! Lest core: the flow format, validation, the runner and run reports.
 
+pub mod ai;
 pub mod browser;
 pub mod catalog;
+pub mod docs;
 pub mod event;
 pub mod expr;
 pub mod headline;

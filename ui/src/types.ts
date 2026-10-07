@@ -264,3 +264,56 @@ export type EventBody =
     };
 
 export type RunEvent = EventBase & EventBody;
+
+// Optional AI (crates/lest-core/src/ai.rs).
+
+/** "none", "auto", "command", or the name of a built-in agent CLI. */
+export type AiProvider = string;
+
+export interface AiConfig {
+  provider: AiProvider;
+  model?: string;
+  command?: string;
+  agent?: string;
+  dailyLimit?: number;
+}
+
+export interface AiResolved {
+  kind: AiProvider;
+  label: string;
+  model: string | null;
+}
+
+export interface AiStatus {
+  configured: AiProvider;
+  resolved: AiResolved | null;
+  /** Agent CLIs found on PATH. */
+  available: string[];
+  callsToday: number;
+  dailyLimit: number;
+}
+
+export interface SettingsResponse {
+  ai: AiConfig;
+  status: AiStatus;
+}
+
+export interface Explanation {
+  text: string;
+  source: "lest" | "model";
+  provider?: string;
+  note?: string;
+}
+
+export interface Handoff {
+  context: string;
+  prompt: string;
+  command: string | null;
+}
+
+export interface AgentLaunch {
+  launched: boolean;
+  how?: string;
+  error?: string;
+  command: string;
+}

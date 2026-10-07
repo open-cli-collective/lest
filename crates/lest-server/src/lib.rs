@@ -66,6 +66,7 @@ pub(crate) struct AppState {
     /// The cookie's name carries the port, so two `lest ui` processes do
     /// not overwrite each other's token.
     pub cookie: String,
+    pub roots: StateRoots,
     pub store: Store,
     pub keyring: Arc<dyn Keyring>,
     pub browser: Arc<dyn BrowserDriver>,
@@ -104,7 +105,8 @@ pub async fn bind(opts: Options) -> anyhow::Result<Server> {
     let (events, _) = broadcast::channel(4096);
     let state = Arc::new(AppState {
         project: RwLock::new(opts.project),
-        store: Store::new(opts.roots),
+        store: Store::new(opts.roots.clone()),
+        roots: opts.roots,
         keyring: opts.keyring,
         cookie: format!("lest_token_{}", addr.port()),
         // The live view may run from either loopback name.

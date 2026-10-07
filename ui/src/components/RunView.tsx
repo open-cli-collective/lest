@@ -12,7 +12,15 @@ import {
   type StepState,
 } from "../store/runState";
 import { useRun } from "../store/store";
-import type { Artifact, RunReport, StepReport, StepStatus, ToolReport } from "../types";
+import type { AiStatus, Artifact, Handoff, RunReport, StepReport, StepStatus, ToolReport } from "../types";
+import {
+  agentConfigured,
+  explainSlot,
+  explanationKey,
+  requestExplanation,
+  useAiSettings,
+  type ExplainState,
+} from "../lib/ai";
 import {
   IconCopy,
   IconExternal,
@@ -23,7 +31,7 @@ import {
 } from "./icons";
 import { LiveView } from "./LiveView";
 import { ResultBadge, StatusDot, StatusGlyph } from "./status";
-import { CopyButton, copyWithToast, Lightbox, OverflowMenu, toast, useNow } from "./ui";
+import { CopyButton, copyWithToast, Dialog, Lightbox, OverflowMenu, toast, useNow } from "./ui";
 
 export interface RunViewProps {
   runId: string;
@@ -554,8 +562,8 @@ function KvRow({ k, v }: { k: string; v: ReactNode }) {
 }
 
 /** The failure explanation slot. The primary line holds the deterministic
- * headline today; the marker and secondary lines keep their place so a
- * different primary text can fill it without moving anything. */
+ * headline; with AI on, a model's explanation takes its place and the
+ * headline moves to the line under it. The marker keeps its place either way. */
 function FailedCard({ s, ctx }: { s: StepState; ctx: Ctx }) {
   const r = s.report as StepReport;
   const { run } = ctx;
@@ -570,13 +578,46 @@ function FailedCard({ s, ctx }: { s: StepState; ctx: Ctx }) {
     inputs: report.inputs,
   });
   const headline = r.headline ?? r.error ?? `${s.name} ${s.status}`;
+  const ai = useAiSettings();
+  // Explanations and handoffs read the stored report, so they wait for the run to finish.
+  const stored = !ctx.live && !!run.report;
+  const explainState = useExplanation(ai?.status ?? null, stored ? run.runId : null, s.id);
+  const slot = explainSlot(headline, explainState);
+  const handoff = useHandoff(ai?.status ?? null, stored ? run.runId : null, s.id);
+  const [launch, setLaunch] = useState<{ error: string; command: string | null } | null>(null);
+  const openAgent = async () => {
+    try {
+      const res = await api.openAgent(run.runId, s.id);
+      if (res.launched) toast(`Opened ${res.how ?? "a terminal"} with the agent`);
+      else setLaunch({ error: res.error ?? "No terminal could be opened.", command: res.command });
+    } catch (e) {
+      setLaunch({ error: (e as Error).message, command: null });
+    }
+  };
+  const agentItems =
+    stored && agentConfigured(ai?.status, handoff?.command)
+      ? [
+          { label: "Open in agent", icon: <IconTerminal size={14} />, onSelect: () => void openAgent() },
+          ...(handoff?.command
+            ? [
+                {
+                  label: "Copy agent command",
+                  icon: <IconCopy size={14} />,
+                  onSelect: () => void copyWithToast(handoff.command as string, "agent command"),
+                },
+              ]
+            : []),
+        ]
+      : [];
   return (
-    <div className={`explain${s.status === "errored" ? " errored" : ""}`}>
+    <div className={`explain${s.status === "errored" ? " errored" : ""}${ai?.status.resolved ? " ai" : ""}`}>
       <div className="explain-top">
         <StatusGlyph status={s.status} />
-        <div className="explain-primary">{headline}</div>
-        <span className="explain-marker" aria-hidden={true} />
+        <div className="explain-primary">{slot.primary}</div>
+        <span className="explain-marker">{slot.marker}</span>
       </div>
+      {slot.headline && <div className="explain-secondary explain-headline">{slot.headline}</div>}
+      {slot.note && <div className="explain-secondary explain-note">{slot.note}</div>}
       {s.notes && <div className="explain-secondary">{s.notes}</div>}
       <div className="explain-actions">
         <button type="button" className="btn btn-sm" onClick={() => void copyWithToast(rerun, "rerun command")}>
@@ -596,6 +637,7 @@ function FailedCard({ s, ctx }: { s: StepState; ctx: Ctx }) {
           items={[
             { label: "Copy headline", icon: <IconCopy size={14} />, onSelect: () => void copyWithToast(headline, "headline") },
             { label: "Copy step id", icon: <IconCopy size={14} />, onSelect: () => void copyWithToast(s.id, "step id") },
+            ...agentItems,
             {
               label: "Show run folder",
               icon: <IconFolder size={14} />,
@@ -611,8 +653,73 @@ function FailedCard({ s, ctx }: { s: StepState; ctx: Ctx }) {
           ]}
         />
       </div>
+      {launch && (
+        <Dialog title="Open in agent" onClose={() => setLaunch(null)}>
+          <p>{launch.error}</p>
+          {launch.command ? (
+            <>
+              <p className="muted">Run this in a terminal yourself:</p>
+              <div className="dialog-command">
+                <pre className="mono">{launch.command}</pre>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => void copyWithToast(launch.command as string, "agent command")}
+                >
+                  <IconCopy size={14} />
+                  Copy
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="muted">
+              Set the agent to start with <span className="mono">lest config set ai.agent '&lt;command&gt; {"{prompt}"}'</span>.
+            </p>
+          )}
+        </Dialog>
+      )}
     </div>
   );
+}
+
+/** The explanation for a failed step of a finished run, when AI is on. */
+function useExplanation(status: AiStatus | null, runId: string | null, stepId: string): ExplainState {
+  const key = status?.resolved && runId ? explanationKey(status, runId, stepId) : null;
+  const [result, setResult] = useState<{ key: string; state: ExplainState } | null>(null);
+  useEffect(() => {
+    if (!key || !runId) return;
+    let alive = true;
+    requestExplanation(key, runId, stepId).then(
+      (explanation) => alive && setResult({ key, state: { kind: "done", explanation } }),
+      (e: Error) => alive && setResult({ key, state: { kind: "error", message: e.message } }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [key, runId, stepId]);
+  if (!key) return { kind: "off" };
+  return result?.key === key ? result.state : { kind: "pending" };
+}
+
+/** The agent handoff for a finished run, fetched when AI may be on. */
+function useHandoff(status: AiStatus | null, runId: string | null, stepId: string): Handoff | null {
+  const [handoff, setHandoff] = useState<Handoff | null>(null);
+  const resolved = status?.resolved?.label ?? "";
+  useEffect(() => {
+    if (!status || !runId || status.configured === "none") {
+      setHandoff(null);
+      return;
+    }
+    let alive = true;
+    api.handoff(runId, stepId).then(
+      (h) => alive && setHandoff(h),
+      () => alive && setHandoff(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [status?.configured, resolved, runId, stepId]);
+  return handoff;
 }
 
 /** A report-shaped view of a run whose report has not loaded yet. */

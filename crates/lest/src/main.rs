@@ -115,6 +115,13 @@ async fn dispatch(cli: Cli, style: Style) -> Result<u8> {
         }
         Command::Data { command } => cmd_data(&ctx, command),
         Command::Ui(a) => cmd_ui(&ctx, a).await,
+        Command::Explain(a) => cmd_explain(&ctx, a, false),
+        Command::Context(a) => cmd_explain(&ctx, a, true),
+        Command::Docs { command: DocsCommand::Agent } => {
+            print!("{}", lest_core::docs::agent_guide());
+            Ok(0)
+        }
+        Command::Config { command } => cmd_config(&ctx, command),
     }
 }
 
@@ -831,6 +838,89 @@ fn cmd_secrets(ctx: &Ctx, command: SecretsCommand) -> Result<u8> {
             } else {
                 Err(fail(exit::NOT_FOUND, format!("{name} is not in the keyring")))
             }
+        }
+    }
+}
+
+fn user_config(ctx: &Ctx) -> Result<lest_core::ai::UserConfig> {
+    lest_core::ai::UserConfig::load(&ctx.roots.config_file()).map_err(|e| fail(exit::ERRORED, e.to_string()))
+}
+
+fn cmd_explain(ctx: &Ctx, a: ExplainArgs, context_only: bool) -> Result<u8> {
+    let report = ctx.store().find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let step = match &a.step {
+        Some(id) => report
+            .find_step(id)
+            .ok_or_else(|| fail(exit::NOT_FOUND, format!("no step {id} in run {}", report.run_id)))?,
+        None => report
+            .first_failure()
+            .ok_or_else(|| fail(exit::NOT_FOUND, format!("run {} has no failed step", report.run_id)))?,
+    };
+    let flow_source = std::fs::read_to_string(std::path::Path::new(&report.project_dir).join(&report.flow_path)).ok();
+    if context_only {
+        print!("{}", lest_core::ai::context(&report, step, flow_source.as_deref()));
+        return Ok(0);
+    }
+    let cfg = user_config(ctx)?;
+    let e = lest_core::ai::explain(&cfg.ai, &ctx.roots.data_dir, &report, &step.id, flow_source.as_deref());
+    println!("{}", e.text);
+    match e.source {
+        lest_core::ai::Source::Model => eprintln!("(written by {})", e.provider.as_deref().unwrap_or("a model")),
+        lest_core::ai::Source::Lest => {}
+    }
+    if let Some(n) = e.note {
+        eprintln!("note: {n}");
+    }
+    Ok(0)
+}
+
+fn cmd_config(ctx: &Ctx, command: ConfigCommand) -> Result<u8> {
+    let path = ctx.roots.config_file();
+    let mut cfg = user_config(ctx)?;
+    match command {
+        ConfigCommand::Show => {
+            println!("Config: {}", path.display());
+            println!("Data: {}", ctx.roots.data_dir.display());
+            let status = lest_core::ai::status(&cfg.ai, &ctx.roots.data_dir);
+            println!("ai.provider: {}", serde_json::to_value(cfg.ai.provider)?.as_str().unwrap_or("none"));
+            println!("ai.model: {}", cfg.ai.model.as_deref().unwrap_or("-"));
+            println!("ai.command: {}", cfg.ai.command.as_deref().unwrap_or("-"));
+            println!("ai.agent: {}", cfg.ai.agent.as_deref().unwrap_or("-"));
+            println!("ai.dailyLimit: {}", status.daily_limit);
+            println!(
+                "AI: {}",
+                match &status.resolved {
+                    Some(r) => format!("{} ({} of {} calls today)", r.label, status.calls_today, status.daily_limit),
+                    None => "off".to_string(),
+                }
+            );
+            println!(
+                "Agent CLIs found: {}",
+                if status.available.is_empty() { "none".into() } else { status.available.join(", ") }
+            );
+            Ok(0)
+        }
+        ConfigCommand::Set { key, value } => {
+            let v = if value.trim().is_empty() { None } else { Some(value.clone()) };
+            match key.as_str() {
+                "ai.provider" => {
+                    cfg.ai.provider = serde_json::from_value(serde_json::Value::String(value.to_lowercase()))
+                        .map_err(|_| fail(exit::USAGE, "ai.provider is one of none, auto, claude, codex, command"))?;
+                }
+                "ai.model" => cfg.ai.model = v,
+                "ai.command" => cfg.ai.command = v,
+                "ai.agent" => cfg.ai.agent = v,
+                "ai.dailyLimit" => {
+                    cfg.ai.daily_limit = match v {
+                        Some(n) => Some(n.parse().map_err(|_| fail(exit::USAGE, "ai.dailyLimit is a number"))?),
+                        None => None,
+                    }
+                }
+                other => return Err(fail(exit::USAGE, format!("unknown setting '{other}'"))),
+            }
+            cfg.save(&path).map_err(|e| fail(exit::ERRORED, e.to_string()))?;
+            eprintln!("saved {key} to {}", path.display());
+            Ok(0)
         }
     }
 }

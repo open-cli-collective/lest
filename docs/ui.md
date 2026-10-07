@@ -68,8 +68,8 @@ the step's `notes` under it. The actions:
 - The overflow menu copies the headline or step id, opens the run folder in
   the file manager, or opens the run on its own page.
 
-The headline block is laid out so another text can take its place later
-without moving anything else on the page.
+The headline block is laid out so another text can take its place without
+moving anything else on the page (see [AI (optional)](#ai-optional)).
 
 The UI follows the system's light or dark setting, or the choice in Settings:
 
@@ -122,8 +122,61 @@ extras. A flow that has not recorded yet says so.
 
 ![Settings](images/settings.png)
 
-Theme (System, Light, Dark), and the project's name, root, config file and
-the Lest version.
+Theme (System, Light, Dark), the AI settings, and the project's name, root,
+config file and the Lest version. The theme is saved in the browser; the AI
+settings are saved in the Lest settings file (`lest config show` prints its
+path).
+
+## AI (optional)
+
+AI is off by default, and turning it on or off changes no layout: it fills
+places that already hold deterministic content, and its actions live only in
+menus.
+
+![Settings with a custom command provider](images/settings-ai.png)
+
+Settings, AI:
+
+- **Provider:** Off, Automatic (the first agent CLI found on PATH), one
+  choice per agent CLI found on PATH, or Custom command. Custom command shows
+  a field for the program, which reads the prompt on stdin and prints text.
+- **Model:** passed to the agent CLI; a custom command does not receive it.
+  Empty means the provider's small default.
+- **Daily limit:** model calls allowed per day (default 50).
+- A status line says whether AI is off, which provider and model are in use
+  and how many model calls were made today, or why the choice resolves to
+  nothing (for example, no agent CLI on PATH).
+
+Every change is saved right away (text fields after a short pause). The
+agent command used by Open in agent has no field here; set it with
+`lest config set ai.agent '<command> {prompt}'`. Without it, the selected
+agent CLI is used.
+
+![A failure explained by a model, with the step menu open](images/flow-failed-ai.png)
+
+On a failed step of a finished run, with a provider in use, the UI asks the
+server to explain the failure once per provider, run and step:
+
+- While it waits, the card shows the deterministic headline and
+  "Explaining…" in the marker position at the top right. The run is never
+  held up; a run in progress is explained only after it finishes.
+- When the model answers, its text takes the headline's place, the marker
+  reads "Written by" and the provider's name, and the headline moves to the
+  line under it.
+- When the model cannot be used (it failed, timed out, or the daily limit is
+  reached), the card keeps the headline and adds "AI unavailable:" with the
+  reason in small text under it.
+
+Explanations are cached by the server, so reopening a run does not call the
+model again.
+
+The step's overflow menu gains two items when a provider or an agent is
+configured: **Open in agent** starts your agent CLI in a terminal, in the
+project, with a prompt naming the flow, the run and the failed step (if no
+terminal can be opened, a dialog shows the error and the command with a Copy
+button), and **Copy agent command** copies that command (shown when an agent
+command exists). With AI off, these items are absent and the card is the same
+as in [Failures](#failures).
 
 ## Updating the screenshots
 
@@ -136,5 +189,9 @@ cd ui && LEST_UI_URL='http://127.0.0.1:4790/?token=...' npm run screenshots
 ```
 
 The script starts runs through the API and waits for each state before it
-captures. The project root appears in `settings.png`, so run the server from
+captures. It turns AI off for the regular images and restores the AI settings
+afterwards. `flow-failed-ai.png` and `settings-ai.png` need
+`LEST_UI_AI_COMMAND` set to a program that reads a prompt on stdin and prints
+an explanation; without it they are skipped. Start the server with a PATH that
+has no agent CLIs on it so the provider choices in the image are generic. The project root appears in `settings.png`, so run the server from
 a copy of `examples/` at a neutral path if your checkout path is personal.

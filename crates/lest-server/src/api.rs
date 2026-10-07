@@ -59,6 +59,11 @@ pub(crate) fn routes() -> Router<Arc<AppState>> {
         .route("/runs/{id}/files/{*path}", get(run_file))
         .route("/runs/{id}/reveal", post(reveal))
         .route("/tools/{name}/login", post(tool_login))
+        .route("/settings", get(settings))
+        .route("/settings/ai", axum::routing::put(save_ai))
+        .route("/runs/{id}/explain", post(explain))
+        .route("/runs/{id}/handoff", get(handoff))
+        .route("/runs/{id}/agent", post(launch_agent))
         .route("/events", get(events))
 }
 
@@ -494,6 +499,104 @@ async fn tool_login(State(s): State<Arc<AppState>>, Path(name): Path<String>) ->
     match crate::terminal::open(&login, &project.root) {
         Ok(how) => Ok(Json(json!({"launched": true, "how": how, "command": login}))),
         Err(e) => Ok(Json(json!({"launched": false, "error": e, "command": login}))),
+    }
+}
+
+fn user_config(s: &AppState) -> AppResult<lest_core::ai::UserConfig> {
+    lest_core::ai::UserConfig::load(&s.roots.config_file())
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[derive(Serialize)]
+struct SettingsResponse {
+    ai: lest_core::ai::AiConfig,
+    status: lest_core::ai::Status,
+}
+
+async fn settings(State(s): State<Arc<AppState>>) -> AppResult<Json<SettingsResponse>> {
+    let cfg = user_config(&s)?;
+    let status = lest_core::ai::status(&cfg.ai, &s.roots.data_dir);
+    Ok(Json(SettingsResponse { ai: cfg.ai, status }))
+}
+
+async fn save_ai(
+    State(s): State<Arc<AppState>>,
+    Json(ai): Json<lest_core::ai::AiConfig>,
+) -> AppResult<Json<SettingsResponse>> {
+    let mut cfg = user_config(&s)?;
+    cfg.ai = ai;
+    cfg.save(&s.roots.config_file()).map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    settings(State(s)).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StepBody {
+    step_id: Option<String>,
+}
+
+fn stored_report(s: &AppState, id: &str) -> AppResult<RunReport> {
+    s.store.find(id).map_err(|e| not_found(e.to_string()))
+}
+
+/// A failed step's explanation: the deterministic headline, or a model's
+/// when the user configured one. Never blocks a run; computed on request.
+async fn explain(
+    State(s): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    body: Option<Json<StepBody>>,
+) -> AppResult<Json<lest_core::ai::Explanation>> {
+    let report = stored_report(&s, &id)?;
+    let step_id = match body.and_then(|b| b.0.step_id) {
+        Some(id) => id,
+        None => report.first_failure().map(|f| f.id.clone()).ok_or_else(|| not_found("the run has no failed step"))?,
+    };
+    let cfg = user_config(&s)?;
+    let data_dir = s.roots.data_dir.clone();
+    let source = std::fs::read_to_string(std::path::Path::new(&report.project_dir).join(&report.flow_path)).ok();
+    let e = tokio::task::spawn_blocking(move || {
+        lest_core::ai::explain(&cfg.ai, &data_dir, &report, &step_id, source.as_deref())
+    })
+    .await
+    .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(e))
+}
+
+#[derive(Deserialize)]
+struct StepQuery {
+    step: Option<String>,
+}
+
+async fn handoff(
+    State(s): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(q): Query<StepQuery>,
+) -> AppResult<Json<lest_core::ai::Handoff>> {
+    let report = stored_report(&s, &id)?;
+    let cfg = user_config(&s)?;
+    Ok(Json(lest_core::ai::handoff(&cfg.ai, &report, q.step.as_deref())))
+}
+
+/// Opens the user's agent CLI in a terminal, in the project, with the
+/// failure's context. The command is built here, never taken from the
+/// request.
+async fn launch_agent(
+    State(s): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    body: Option<Json<StepBody>>,
+) -> AppResult<Json<Json_>> {
+    let report = stored_report(&s, &id)?;
+    let cfg = user_config(&s)?;
+    let h = lest_core::ai::handoff(&cfg.ai, &report, body.and_then(|b| b.0.step_id).as_deref());
+    let Some(command) = h.command else {
+        return Err(bad_request(
+            "no agent is configured: set Agent command in Settings, or `lest config set ai.agent '<cli> {prompt}'`",
+        ));
+    };
+    let cwd = std::path::PathBuf::from(&report.project_dir);
+    match crate::terminal::open(&command, &cwd) {
+        Ok(how) => Ok(Json(json!({"launched": true, "how": how, "command": command}))),
+        Err(e) => Ok(Json(json!({"launched": false, "error": e, "command": command}))),
     }
 }
 

@@ -50,6 +50,20 @@ pub enum Command {
     },
     /// Open the UI.
     Ui(UiArgs),
+    /// Explain why a run's step failed.
+    Explain(ExplainArgs),
+    /// Print everything needed to pick up a failed run, ready to paste.
+    Context(ExplainArgs),
+    /// Print documentation.
+    Docs {
+        #[command(subcommand)]
+        command: DocsCommand,
+    },
+    /// Show or change settings.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     /// Remove stored run data.
     Data {
         #[command(subcommand)]
@@ -89,6 +103,31 @@ pub struct RunArgs {
     /// Print only the final result line.
     #[arg(short = 'q', long)]
     pub quiet: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ExplainArgs {
+    /// Run id or unique prefix.
+    pub run: String,
+    /// The step (default: the first failed step).
+    #[arg(long)]
+    pub step: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DocsCommand {
+    /// The flow authoring guide and references, for coding agents.
+    Agent,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    /// Print the settings and the AI provider they resolve to.
+    Show,
+    /// Change a setting: ai.provider (none, auto, claude, codex, command),
+    /// ai.model, ai.command, ai.agent, ai.dailyLimit. An empty value clears
+    /// it.
+    Set { key: String, value: String },
 }
 
 #[derive(Debug, Args)]

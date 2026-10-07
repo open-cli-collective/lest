@@ -78,6 +78,11 @@ lest runs list
 - **Reports:** a JSON report per run (`lest schema report` describes it) and
   JUnit XML for CI.
 
+- **Optional AI:** off by default. With a provider of your choice, failed
+  steps get a plain-words explanation next to their deterministic headline,
+  and Open in agent hands the failure to your own agent CLI. Nothing changes
+  in the layout either way.
+
 ## Examples
 
 [`examples/`](examples) is a project with a small sample web app (Sprout, a
@@ -97,6 +102,8 @@ lest run everything
 - [Flow format](docs/flow-format.md)
 - [Browser steps](docs/browser.md)
 - [Demos](docs/demos.md)
+- [UI](docs/ui.md)
+- [AI (optional)](docs/ai.md)
 - [Design](docs/design.md): why Lest works the way it does
 - [Development](docs/development.md)
 

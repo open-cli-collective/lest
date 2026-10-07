@@ -12,10 +12,12 @@ live in menus.
   HTTP status and the body's message, the expectation and what the page
   showed). With a provider, the failure card and `lest explain` add a short
   explanation written by the model, marked as such, with the headline kept
-  beside it. The model gets the redacted report, the step's output tail, its
-  notes and the flow file, and answers once per step; the answer is cached.
-- **Hands off to your own agent.** The failure card's menu and `lest context`
-  give everything needed to pick up a failure: the flow and report paths, the
+  beside it. The model gets the step's output tail, its notes, the earlier
+  steps' results and the flow file, with every resolved secret value
+  redacted. Output from the system under test is untrusted text: treat the
+  answer as a suggestion. Each step is explained once; the answer is cached.
+- **Hands off to your own agent.** The failure card's Copy context button
+  and `lest context` give everything needed to pick up a failure: the flow and report paths, the
   failing step, its output and the rerun command. With an agent configured,
   **Open in agent** starts your agent CLI in a terminal, in the project, with
   that task. Lest has no chat of its own: your agent already has tools,
@@ -44,13 +46,31 @@ lest config show
 |---|---|
 | `none` | No AI (default). |
 | `auto` | The first supported agent CLI on PATH, else none. |
-| a supported agent CLI | That CLI, headless: one answer, no tools, no MCP servers, no user customizations, in an empty temporary directory, killed after 90 seconds. |
+| a supported agent CLI | That CLI, headless, in an empty temporary directory, for one answer. CLIs that can turn tools off run with no tools, no MCP servers and no user customizations; a CLI that cannot runs in its read-only sandbox without the user's config or rules, so it can still read files to answer. |
 | `command` | Any program that reads the prompt on stdin and prints the answer. Labeled by the program's name. |
 
+Every call, writing the prompt included, is stopped after 90 seconds, and
+the provider's whole process group is killed. Prompts are cut at 48 KB. The
+provider never sees the environment variables the env secret backends read;
+its own configuration and sign-in variables are left alone.
+
 Settings live in `config.yml` in Lest's config directory (`lest config show`
-prints the path). Calls are counted per day in the data directory; past
+prints the path). Calls are counted per UTC day in the data directory; past
 `dailyLimit`, explanations fall back to the headline with a note. Answers are
-cached by input, so reopening a failure costs nothing.
+cached by the provider, command, model and input, so reopening a failure
+costs nothing.
+
+Open in agent passes the task to your agent through the `LEST_AGENT_PROMPT`
+environment variable, so the agent command's quoting cannot turn the task's
+text into shell code.
+
+## Trust
+
+The UI's token is equivalent to running commands as you: anyone holding it
+can run the project's flows and, through Settings, set the command the AI
+provider runs. Lest's server listens on loopback only, requires the token on
+every API call, and accepts changes only from its own page. Do not share the
+address `lest ui` prints.
 
 ## Without AI
 

@@ -554,8 +554,9 @@ async fn explain(
     let cfg = user_config(&s)?;
     let data_dir = s.roots.data_dir.clone();
     let source = std::fs::read_to_string(std::path::Path::new(&report.project_dir).join(&report.flow_path)).ok();
+    let remove = lest_core::secrets::secret_env_names(&s.project.read().expect("lock").secrets_config());
     let e = tokio::task::spawn_blocking(move || {
-        lest_core::ai::explain(&cfg.ai, &data_dir, &report, &step_id, source.as_deref())
+        lest_core::ai::explain(&cfg.ai, &data_dir, &report, &step_id, source.as_deref(), &remove)
     })
     .await
     .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

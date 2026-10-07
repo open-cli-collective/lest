@@ -113,13 +113,31 @@ pub fn status(cfg: &AiConfig, data_dir: &Path) -> Status {
     }
 }
 
-/// One headless call.
+/// Most a prompt may hold; the context is cut to fit.
+pub const MAX_PROMPT: usize = 48 * 1024;
+
+/// Variables that make an agent CLI believe it runs inside another agent's
+/// session. Only these are removed; configuration and credentials stay, so
+/// any way the user signs in to their CLI keeps working.
+const SESSION_MARKERS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SSE_PORT",
+    "CODEX_SANDBOX",
+    "CODEX_SANDBOX_NETWORK_DISABLED",
+];
+
+/// One headless call: the prompt on stdin, the answer on stdout. `remove`
+/// names environment variables the provider must not see (the env-backend
+/// secrets). The whole call, writing the prompt included, is bounded by
+/// `timeout`, and a timeout kills the provider's process group.
 pub fn ask(
     cfg: &AiConfig,
     resolved: &Resolved,
     system: &str,
     input: &str,
     timeout: Duration,
+    remove: &[String],
 ) -> Result<String, String> {
     let dir = tempdir()?;
     let out_file = dir.join("answer.txt");
@@ -147,11 +165,23 @@ pub fn ask(
         }
         ProviderKind::Codex => {
             let mut c = std::process::Command::new("codex");
-            c.args(["exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "-o"])
-                .arg(&out_file)
-                .args(cfg.model.as_deref().map(|m| vec!["-m", m]).unwrap_or_default())
-                // Codex has no system-prompt flag; the instruction leads the prompt.
-                .arg(format!("{system}\n\nThe input follows on stdin."));
+            // A read-only sandbox without the user's config, rules or MCP
+            // servers. Codex can still read files to answer; docs/ai.md says
+            // so.
+            c.args([
+                "exec",
+                "--ephemeral",
+                "--skip-git-repo-check",
+                "--ignore-user-config",
+                "--ignore-rules",
+                "-s",
+                "read-only",
+                "-o",
+            ])
+            .arg(&out_file)
+            .args(cfg.model.as_deref().map(|m| vec!["-m", m]).unwrap_or_default())
+            // Codex has no system-prompt flag; the instruction leads the prompt.
+            .arg(format!("{system}\n\nThe input follows on stdin."));
             c
         }
         ProviderKind::Command => {
@@ -161,22 +191,35 @@ pub fn ask(
         }
         _ => return Err("no provider".into()),
     };
-    // The child must not think it is running inside the user's session.
-    for (k, _) in std::env::vars_os() {
-        let k = k.to_string_lossy();
-        if k.starts_with("CLAUDE") || k.starts_with("CODEX_") || k.starts_with("LEST_SECRET_") {
-            cmd.env_remove(k.as_ref());
-        }
+    for k in SESSION_MARKERS.iter().map(|s| s.to_string()).chain(remove.iter().cloned()) {
+        cmd.env_remove(k);
     }
-    let stdin_text =
+    let mut stdin_text =
         if resolved.kind == ProviderKind::Command { format!("{system}\n\n{input}") } else { input.to_string() };
+    if stdin_text.len() > MAX_PROMPT {
+        let mut cut = MAX_PROMPT;
+        while !stdin_text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        stdin_text.truncate(cut);
+        stdin_text.push_str("\n[cut to fit]\n");
+    }
     cmd.current_dir(&dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let mut child = cmd.spawn().map_err(|e| format!("cannot start {}: {e}", resolved.label))?;
+    // The prompt is written on its own thread: a provider that never reads
+    // stdin must not stall us past the timeout.
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(stdin_text.as_bytes());
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(stdin_text.as_bytes());
+        });
     }
     let pid = child.id();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -187,9 +230,10 @@ pub fn ask(
         Ok(r) => r.map_err(|e| e.to_string())?,
         Err(_) => {
             #[cfg(unix)]
-            // SAFETY: signals the provider process we spawned.
+            // SAFETY: signals the process group of the provider we spawned
+            // (process_group(0) made it the leader).
             unsafe {
-                libc::kill(pid as i32, libc::SIGKILL);
+                libc::kill(-(pid as i32), libc::SIGKILL);
             }
             let _ = std::fs::remove_dir_all(&dir);
             return Err(format!("{} did not answer within {}s", resolved.label, timeout.as_secs()));
@@ -286,6 +330,7 @@ pub fn explain(
     report: &RunReport,
     step_id: &str,
     flow_source: Option<&str>,
+    remove: &[String],
 ) -> Explanation {
     let Some(step) = report.find_step(step_id) else {
         return Explanation {
@@ -310,8 +355,16 @@ pub fn explain(
         return deterministic;
     }
     let input = context(report, step, flow_source);
+    // The full configuration is part of the key: a different command or
+    // model never reuses another's answer.
     let key = hex::encode(Sha256::digest(
-        format!("{}\n{}\n{input}", resolved.label, cfg.model.as_deref().unwrap_or("")).as_bytes(),
+        format!(
+            "{}\n{}\n{}\n{input}",
+            resolved.label,
+            cfg.command.as_deref().unwrap_or(""),
+            cfg.model.as_deref().unwrap_or("")
+        )
+        .as_bytes(),
     ));
     let cache = data_dir.join("ai").join("explain").join(format!("{}.json", &key[..32]));
     if let Some(e) = std::fs::read(&cache).ok().and_then(|b| serde_json::from_slice::<Explanation>(&b).ok()) {
@@ -319,11 +372,17 @@ pub fn explain(
     }
     let ledger = Ledger::new(data_dir);
     let limit = cfg.daily_limit.unwrap_or(50);
-    if ledger.calls_today() >= limit {
-        return Explanation { note: Some(format!("daily limit of {limit} model calls reached")), ..deterministic };
+    {
+        // Check and record together, so concurrent requests in this process
+        // cannot both take the last call.
+        static LEDGER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
+        if ledger.calls_today() >= limit {
+            return Explanation { note: Some(format!("daily limit of {limit} model calls reached")), ..deterministic };
+        }
+        ledger.record(&resolved.label);
     }
-    ledger.record(&resolved.label);
-    match ask(cfg, &resolved, EXPLAIN_SYSTEM, &input, Duration::from_secs(90)) {
+    match ask(cfg, &resolved, EXPLAIN_SYSTEM, &input, Duration::from_secs(90), remove) {
         Ok(text) => {
             let e = Explanation { text, source: Source::Model, provider: Some(resolved.label.clone()), note: None };
             if let Ok(bytes) = serde_json::to_vec(&e) {
@@ -451,13 +510,13 @@ pub fn handoff(cfg: &AiConfig, report: &RunReport, step_id: Option<&str>) -> Han
     };
     let prompt = match failed {
         Some(step) => format!(
-            "The Lest flow {} failed at step {} in run {}. Read the flow at {}/{} and the run with `lest runs get {} -o report.json`, \
-find the cause, and fix the flow or tell me what is wrong with the system under test. `lest docs agent` explains the flow format. \
-Rerun with `lest run {}` to confirm.",
+            "The Lest flow {} failed at step {} in run {}. Read the flow at {}/{} and the run with: lest runs get {} -o report.json. \
+Find the cause, and fix the flow or tell me what is wrong with the system under test. The command lest docs agent explains the flow format. \
+Rerun with: lest run {}",
             report.flow_id, step.id, report.run_id, report.project_dir, report.flow_path, report.run_id, report.flow_id
         ),
         None => format!(
-            "Look at the Lest flow {} ({}/{}). `lest docs agent` explains the flow format.",
+            "Look at the Lest flow {} ({}/{}). The command lest docs agent explains the flow format.",
             report.flow_id, report.project_dir, report.flow_path
         ),
     };
@@ -466,9 +525,15 @@ Rerun with `lest run {}` to confirm.",
         Some(ProviderKind::Codex) => Some("codex {prompt}".to_string()),
         _ => None,
     });
+    // The prompt reaches the agent through an environment variable, so a
+    // template such as `agent "{prompt}"` cannot turn its text into shell
+    // code.
     let command = agent.map(|a| {
-        let cmd = a.replace("{prompt}", &shell_quote(&prompt));
-        format!("cd {} && {cmd}", shell_quote(&report.project_dir))
+        let cmd = a
+            .replace("\"{prompt}\"", "\"$LEST_AGENT_PROMPT\"")
+            .replace("'{prompt}'", "\"$LEST_AGENT_PROMPT\"")
+            .replace("{prompt}", "\"$LEST_AGENT_PROMPT\"");
+        format!("cd {} && LEST_AGENT_PROMPT={} {cmd}", shell_quote(&report.project_dir), shell_quote(&prompt))
     });
     Handoff { context, prompt, command }
 }
@@ -549,7 +614,7 @@ mod tests {
     #[test]
     fn without_a_provider_the_headline_is_the_explanation() {
         let dir = tempfile::tempdir().unwrap();
-        let e = explain(&AiConfig::default(), dir.path(), &report(), "fetch", None);
+        let e = explain(&AiConfig::default(), dir.path(), &report(), "fetch", None, &[]);
         assert_eq!(e.source, Source::Lest);
         assert_eq!(e.text, "HTTP 404 from GET http://127.0.0.1:1/users/9");
     }
@@ -563,10 +628,10 @@ mod tests {
             command: Some(format!("echo x >> {}; echo 'The user does not exist; create it first.'", counter.display())),
             ..Default::default()
         };
-        let e = explain(&cfg, dir.path(), &report(), "fetch", None);
+        let e = explain(&cfg, dir.path(), &report(), "fetch", None, &[]);
         assert_eq!(e.source, Source::Model, "{e:?}");
         assert_eq!(e.text, "The user does not exist; create it first.");
-        let again = explain(&cfg, dir.path(), &report(), "fetch", None);
+        let again = explain(&cfg, dir.path(), &report(), "fetch", None, &[]);
         assert_eq!(again.text, e.text);
         assert_eq!(std::fs::read_to_string(&counter).unwrap().lines().count(), 1);
     }
@@ -575,9 +640,20 @@ mod tests {
     fn a_failing_provider_falls_back_with_a_note() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = AiConfig { provider: ProviderKind::Command, command: Some("exit 7".into()), ..Default::default() };
-        let e = explain(&cfg, dir.path(), &report(), "fetch", None);
+        let e = explain(&cfg, dir.path(), &report(), "fetch", None, &[]);
         assert_eq!(e.source, Source::Lest);
         assert!(e.note.unwrap().contains("exited 7"));
+    }
+
+    #[test]
+    fn a_provider_that_never_reads_is_stopped_on_time() {
+        let cfg = AiConfig { provider: ProviderKind::Command, command: Some("sleep 30".into()), ..Default::default() };
+        let r = resolve(&cfg).unwrap();
+        let started = std::time::Instant::now();
+        let big = "x".repeat(400_000);
+        let e = ask(&cfg, &r, "sys", &big, Duration::from_secs(1), &[]).unwrap_err();
+        assert!(e.contains("did not answer"), "{e}");
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
     #[test]
@@ -596,6 +672,11 @@ mod tests {
         assert!(handoff(&AiConfig::default(), &r, Some("fetch")).command.is_none());
         let cfg = AiConfig { agent: Some("my-agent --ask {prompt}".into()), ..Default::default() };
         let h = handoff(&cfg, &r, Some("fetch"));
-        assert!(h.command.unwrap().starts_with("cd '/work/app' && my-agent --ask 'The Lest flow users failed"));
+        let cmd = h.command.unwrap();
+        assert!(cmd.starts_with("cd '/work/app' && LEST_AGENT_PROMPT='The Lest flow users failed"), "{cmd}");
+        assert!(cmd.ends_with("my-agent --ask \"$LEST_AGENT_PROMPT\""), "{cmd}");
+        // A quoted placeholder stays safe.
+        let quoted = AiConfig { agent: Some("agent \"{prompt}\"".into()), ..Default::default() };
+        assert!(handoff(&quoted, &r, Some("fetch")).command.unwrap().ends_with("agent \"$LEST_AGENT_PROMPT\""));
     }
 }

@@ -902,7 +902,8 @@ fn cmd_explain(ctx: &Ctx, a: ExplainArgs, context_only: bool) -> Result<u8> {
         return Ok(0);
     }
     let cfg = user_config(ctx)?;
-    let e = lest_core::ai::explain(&cfg.ai, &ctx.roots.data_dir, &report, &step.id, flow_source.as_deref());
+    let remove = lest_core::secrets::secret_env_names(&ctx.project.secrets_config());
+    let e = lest_core::ai::explain(&cfg.ai, &ctx.roots.data_dir, &report, &step.id, flow_source.as_deref(), &remove);
     println!("{}", e.text);
     match e.source {
         lest_core::ai::Source::Model => eprintln!("(written by {})", e.provider.as_deref().unwrap_or("a model")),

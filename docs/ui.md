@@ -142,15 +142,15 @@ Settings, AI:
   a field for the program, which reads the prompt on stdin and prints text.
 - **Model:** passed to the agent CLI; a custom command does not receive it.
   Empty means the provider's small default.
+- **Agent command:** what Open in agent runs in a terminal; `{prompt}`
+  becomes the task. Empty means the detected agent CLI (a custom command
+  provider has none).
 - **Daily limit:** model calls allowed per day (default 50).
 - A status line says whether AI is off, which provider and model are in use
   and how many model calls were made today, or why the choice resolves to
   nothing (for example, no agent CLI on PATH).
 
-Every change is saved right away (text fields after a short pause). The
-agent command used by Open in agent has no field here; set it with
-`lest config set ai.agent '<command> {prompt}'`. Without it, the selected
-agent CLI is used.
+Every change is saved right away (text fields after a short pause).
 
 ![A failure explained by a model, with the step menu open](images/flow-failed-ai.png)
 
@@ -170,12 +170,12 @@ server to explain the failure once per provider, run and step:
 Explanations are cached by the server, so reopening a run does not call the
 model again.
 
-The step's overflow menu gains two items when a provider or an agent is
-configured: **Open in agent** starts your agent CLI in a terminal, in the
+The step's overflow menu gains two items when there is an agent to open
+(an agent command, or a detected agent CLI as the provider), and only while a
+provider is in use: **Open in agent** starts your agent CLI in a terminal, in the
 project, with a prompt naming the flow, the run and the failed step (if no
 terminal can be opened, a dialog shows the error and the command with a Copy
-button), and **Copy agent command** copies that command (shown when an agent
-command exists). With AI off, these items are absent and the card is the same
+button), and **Copy agent command** copies that command. With AI off, these items are absent and the card is the same
 as in [Failures](#failures).
 
 ## Updating the screenshots

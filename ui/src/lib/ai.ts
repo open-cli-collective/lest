@@ -149,5 +149,8 @@ export function providerOptions(ai: AiConfig, status: AiStatus): ProviderOption[
 
 /** Whether the step menu offers the agent items. */
 export function agentConfigured(status: AiStatus | null | undefined, handoffCommand: string | null | undefined): boolean {
-  return !!handoffCommand || !!status?.resolved;
+  // Only a command Lest can run counts: a provider alone (a custom
+  // command) has no interactive agent to open.
+  void status;
+  return !!handoffCommand;
 }

@@ -193,8 +193,8 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
             Agent command
           </label>
           <div className="hint">
-            What Open in agent runs in a terminal, in the project; <code>{"{prompt}"}</code> becomes the task. Empty: the
-            detected agent CLI.
+            What Open in agent runs in a terminal, in the project; <code>{"{prompt}"}</code> becomes the task. Empty:
+            the detected agent CLI (a custom command provider has none).
           </div>
         </div>
         <input

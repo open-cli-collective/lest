@@ -1332,8 +1332,7 @@ a.card:hover {
   font-size: 12.5px;
   white-space: pre-wrap;
 }
-.explain.ai .explain-marker {
-  min-width: 12em;
+.explain-marker {
   text-align: right;
 }
 .explain-note {

@@ -106,7 +106,7 @@ describe("AI settings", () => {
   it("offers the agent items only when an agent or provider is configured", () => {
     expect(agentConfigured(off, null)).toBe(false);
     expect(agentConfigured(null, undefined)).toBe(false);
-    expect(agentConfigured(on, null)).toBe(true);
+    expect(agentConfigured(on, null)).toBe(false);
     expect(agentConfigured(off, "cd '/p' && agent 'go'")).toBe(true);
   });
 });

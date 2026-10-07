@@ -29,4 +29,9 @@ node -e '
   if (!/never appeared/.test(step.headline)) throw new Error("unexpected headline: " + step.headline);
   if (!step.artifacts.some((a) => a.label === "Screenshot at failure")) throw new Error("no failure screenshot");
 ' "$work/failed.json"
+# Raw browser event files can hold unredacted values; none may remain.
+if find "$LEST_DATA_DIR" -name '*.events.jsonl' | grep -q .; then
+  echo "e2e: browser event files were left in run directories" >&2
+  exit 1
+fi
 echo "e2e: all example flows behaved as expected"

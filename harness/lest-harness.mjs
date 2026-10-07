@@ -16,7 +16,8 @@ const t0 = Date.now();
 mkdirSync(config.artifactsDir, { recursive: true });
 
 function emit(event) {
-  appendFileSync(config.eventsFile, JSON.stringify({ atMs: Date.now() - t0, ...event }) + "\n");
+  // Private to the user: events can carry values the runner redacts later.
+  appendFileSync(config.eventsFile, JSON.stringify({ atMs: Date.now() - t0, ...event }) + "\n", { mode: 0o600 });
 }
 function log(msg) {
   process.stderr.write(`[browser] ${msg}\n`);
@@ -146,7 +147,13 @@ function makeUi(getPage, recording) {
     },
     async fill(sel, value, { secret = false } = {}) {
       const loc = await moveTo(sel);
-      if (!pace || secret) {
+      // Typing key by key reads well on camera but only suits text fields;
+      // dates, colors and other inputs are filled directly.
+      const typeable = await loc
+        .evaluate((el) => el.isContentEditable || el.tagName === "TEXTAREA" ||
+          (el.tagName === "INPUT" && ["", "text", "email", "password", "search", "url", "tel", "number"].includes((el.getAttribute("type") || "").toLowerCase())))
+        .catch(() => false);
+      if (!pace || secret || !typeable) {
         await loc.fill(value);
         return;
       }
@@ -154,6 +161,7 @@ function makeUi(getPage, recording) {
       await loc.click();
       await loc.fill("");
       await loc.pressSequentially(value, { delay: pace.key });
+      if ((await loc.inputValue().catch(() => value)) !== value) await loc.fill(value);
     },
     async select(sel, value) {
       const loc = await moveTo(sel);
@@ -171,8 +179,9 @@ function makeUi(getPage, recording) {
       await visible(sel);
     },
     async expectText(sel, text) {
-      const loc = await visible(sel, `to contain ${JSON.stringify(text)}`);
+      // One 15 second budget for appearing and containing the text.
       const deadline = Date.now() + 15000;
+      const loc = await visible(sel, `to contain ${JSON.stringify(text)}`);
       let last = "";
       while (Date.now() < deadline) {
         last = (await loc.innerText().catch(() => "")) || "";

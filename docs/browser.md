@@ -14,7 +14,8 @@ npm i -D playwright
 npx playwright install chromium
 ```
 
-`lest doctor` reports what is missing.
+`lest doctor` checks the Node version, Playwright in the project, and its
+Chromium.
 
 ## Declarative actions
 
@@ -43,7 +44,7 @@ Most checks need no code:
 | `hover: <selector>` | Hovers. |
 | `waitFor: <selector>` | Waits until visible. |
 | `expectText: {selector, text}` | Waits until the element contains the text. |
-| `expectUrl: <regex>` | Waits until the URL matches. |
+| `expectUrl: <regex>` | Waits until the URL matches (a JavaScript regular expression). |
 | `read: {name, selector}` | Records the element's text as an output. |
 | `screenshot: <name>` | Saves `<name>.png` as an artifact. |
 | `beat: <marker>` | Marks a moment in a recording. |
@@ -51,8 +52,8 @@ Most checks need no code:
 
 Selectors use Playwright's syntax: CSS, `text=Sign in`,
 `role=button[name="Save"]`, `[data-testid=plant]`. Prefer test ids and roles
-over text, which changes with copy and language. Waits fail after 15 seconds
-with what the page showed instead:
+over text, which changes with copy and language. Each action has 15 seconds
+to succeed, and a failed wait says what the page showed instead:
 
 ```
 expected h1 to contain "Welcome", but it never appeared on

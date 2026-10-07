@@ -92,7 +92,12 @@ impl NodeBrowser {
         let path = self.harness_dir.join(format!("lest-harness-{hash}.mjs"));
         if !path.is_file() {
             std::fs::create_dir_all(&self.harness_dir).map_err(|e| e.to_string())?;
-            std::fs::write(&path, HARNESS).map_err(|e| format!("cannot write the browser harness: {e}"))?;
+            // Write then rename, so parallel steps never start Node on a
+            // half-written file.
+            let tmp =
+                self.harness_dir.join(format!(".lest-harness-{}-{}.tmp", std::process::id(), rand::random::<u32>()));
+            std::fs::write(&tmp, HARNESS).map_err(|e| format!("cannot write the browser harness: {e}"))?;
+            std::fs::rename(&tmp, &path).map_err(|e| format!("cannot write the browser harness: {e}"))?;
         }
         Ok(path)
     }
@@ -104,7 +109,11 @@ fn free_port() -> Option<u16> {
 
 /// Actions as the harness expects them, with templates resolved and
 /// durations in milliseconds.
-fn harness_actions(actions: &[BrowserAction], scope: &expr::Scope) -> Result<Vec<Json>, String> {
+fn harness_actions(
+    actions: &[BrowserAction],
+    scope: &expr::Scope,
+    redactor: &crate::secrets::Redactor,
+) -> Result<Vec<Json>, String> {
     let mut out = Vec::new();
     for (i, a) in actions.iter().enumerate() {
         let interp = |s: &str| expr::interpolate(s, scope).map_err(|e| format!("actions[{i}]: {e}"));
@@ -113,8 +122,11 @@ fn harness_actions(actions: &[BrowserAction], scope: &expr::Scope) -> Result<Vec
         } else if let Some(s) = &a.click {
             json!({"click": interp(s)?})
         } else if let Some(f) = &a.fill {
-            let secret = expr::template_exprs(&f.value).iter().any(|e| e.contains("secrets."));
-            json!({"fill": {"selector": interp(&f.selector)?, "value": interp(&f.value)?, "secret": secret}})
+            let value = interp(&f.value)?;
+            // A value holding a secret, however it got there, is filled at
+            // once instead of typed on camera.
+            let secret = redactor.redact(&value) != value;
+            json!({"fill": {"selector": interp(&f.selector)?, "value": value, "secret": secret}})
         } else if let Some(f) = &a.select {
             json!({"select": {"selector": interp(&f.selector)?, "value": interp(&f.value)?}})
         } else if let Some(k) = &a.press {
@@ -253,7 +265,7 @@ impl BrowserDriver for NodeBrowser {
                 Ok(u) => u,
                 Err(e) => return AttemptOutcome::errored(format!("url: {e}")),
             };
-            let actions = match harness_actions(&b.actions, call.scope) {
+            let actions = match harness_actions(&b.actions, call.scope, &call.run.redactor) {
                 Ok(a) => a,
                 Err(e) => return AttemptOutcome::errored(e),
             };
@@ -326,6 +338,9 @@ impl BrowserDriver for NodeBrowser {
             for line in tail.read() {
                 apply(&line, &call, cdp_port, &mut collected);
             }
+            // Everything in the events file is now in the report, redacted;
+            // the raw file may hold secret values, so it goes.
+            let _ = std::fs::remove_file(&events_file);
             call.run.emitter.emit(EventBody::BrowserClosed { step_id: call.step_id.to_string() });
 
             // Videos become artifacts of the step (the raw takes).
@@ -401,7 +416,9 @@ mod tests {
         let mut scope = expr::Scope::new();
         scope.set("vars", json!({"user": "a@example.com"}));
         scope.set("secrets", json!({"pw": "hunter22"}));
-        let out = harness_actions(&actions, &scope).unwrap();
+        let mut secrets = std::collections::BTreeMap::new();
+        secrets.insert("pw".to_string(), "hunter22".to_string());
+        let out = harness_actions(&actions, &scope, &crate::secrets::Redactor::new(&secrets)).unwrap();
         assert_eq!(out[1], json!({"fill": {"selector": "#email", "value": "a@example.com", "secret": false}}));
         assert_eq!(out[2]["fill"]["secret"], json!(true));
         assert_eq!(out[3], json!({"wait": 1500}));

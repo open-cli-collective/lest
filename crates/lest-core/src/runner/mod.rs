@@ -221,16 +221,9 @@ impl Frame<'_> {
     }
 }
 
-/// Named JSON values (inputs, vars).
-type Values = BTreeMap<String, Json>;
-
-/// Resolves the run's inputs and variables for a flow.
-fn resolve_inputs_and_vars(
-    flow: &Flow,
-    environment: Option<&str>,
-    given: &BTreeMap<String, String>,
-) -> Result<(Values, Values), String> {
-    let mut vars: BTreeMap<String, Json> = flow.vars.iter().map(|(k, v)| (k.clone(), v.to_json())).collect();
+/// A flow's vars with an environment applied.
+fn resolve_vars(flow: &Flow, environment: Option<&str>) -> Result<Values, String> {
+    let mut vars: Values = flow.vars.iter().map(|(k, v)| (k.clone(), v.to_json())).collect();
     if let Some(env) = environment {
         match flow.environments.get(env) {
             Some(block) => vars.extend(block.iter().map(|(k, v)| (k.clone(), v.to_json()))),
@@ -244,6 +237,19 @@ fn resolve_inputs_and_vars(
             None => {}
         }
     }
+    Ok(vars)
+}
+
+/// Named JSON values (inputs, vars).
+type Values = BTreeMap<String, Json>;
+
+/// Resolves the run's inputs and variables for a flow.
+fn resolve_inputs_and_vars(
+    flow: &Flow,
+    environment: Option<&str>,
+    given: &BTreeMap<String, String>,
+) -> Result<(Values, Values), String> {
+    let mut vars = resolve_vars(flow, environment)?;
     let mut inputs = BTreeMap::new();
     for input in &flow.inputs {
         let value = given.get(&input.name).cloned().or_else(|| input.default.as_ref().map(|d| d.as_env_string()));
@@ -604,6 +610,38 @@ pub async fn execute_with_id(
         }
     }
 
+    // A resume is checked before anything starts.
+    let mut resume_index = 0;
+    if let Some((old, from)) = &req.resume {
+        let problem = if old.flow_id != flow.id {
+            Some(format!("run {} is a run of {}, not {}", old.run_id, old.flow_id, flow.id))
+        } else if old.environment != environment {
+            Some(format!(
+                "run {} used environment {}; resume with the same environment",
+                old.run_id,
+                old.environment.as_deref().unwrap_or("(none)")
+            ))
+        } else if old.inputs != report.inputs {
+            Some(format!("run {} used different inputs; resume with the same inputs", old.run_id))
+        } else {
+            match flow.steps.iter().position(|s| &s.id == from || from.starts_with(&format!("{}/", s.id))) {
+                None => Some(format!("no top-level step '{from}' to resume from")),
+                Some(i) => {
+                    resume_index = i;
+                    flow.steps[..i].iter().find_map(|s| {
+                        let prev = old.steps.iter().find(|r| r.id == s.id)?;
+                        (prev.status.is_some_and(|st| st.is_failure()) && !s.continue_on_error).then(|| {
+                            format!("step {} failed in run {}; resume from {} or earlier", prev.id, old.run_id, prev.id)
+                        })
+                    })
+                }
+            }
+        };
+        if let Some(m) = problem {
+            return finish(engine, &emitter, fail(report, m), started);
+        }
+    }
+
     // Services from every reachable flow, started once per id.
     let mut running: Vec<crate::services::Running> = Vec::new();
     let mut seen_services = std::collections::BTreeSet::new();
@@ -612,9 +650,23 @@ pub async fn execute_with_id(
             if !seen_services.insert(svc.id.clone()) {
                 continue;
             }
-            let given = if f.flow.id == flow.id { req.inputs.clone() } else { BTreeMap::new() };
-            let (s_inputs, s_vars) =
-                resolve_inputs_and_vars(&f.flow, environment.as_deref(), &given).unwrap_or_default();
+            let values = if f.flow.id == flow.id {
+                resolve_inputs_and_vars(&f.flow, environment.as_deref(), &req.inputs)
+            } else {
+                // A called flow's inputs are not known until it is called:
+                // its services get its vars and environment only.
+                let env = environment.as_deref().or(f.flow.default_environment.as_deref());
+                resolve_vars(&f.flow, env).map(|v| (BTreeMap::new(), v))
+            };
+            let (s_inputs, s_vars) = match values {
+                Ok(v) => v,
+                Err(e) => {
+                    for r in running.iter_mut() {
+                        r.stop().await;
+                    }
+                    return finish(engine, &emitter, fail(report, format!("service {}: {e}", svc.id)), started);
+                }
+            };
             let mut scope = Scope::new();
             scope.set("inputs", Json::Object(s_inputs.clone().into_iter().collect()));
             scope.set("vars", Json::Object(s_vars.clone().into_iter().collect()));
@@ -650,7 +702,14 @@ pub async fn execute_with_id(
             }
             emitter.emit(EventBody::DemoProgress { message: format!("starting service {}", svc.id) });
             let log_dir = run_dir.join("artifacts").join("services");
-            match crate::services::start(svc, ready_url, vars_env, &env_remove, f.dir(), &log_dir, &cancel.main).await {
+            let launch = crate::services::Launch {
+                vars: vars_env,
+                remove: &env_remove,
+                redactor: &redactor,
+                flow_dir: f.dir(),
+                log_dir: &log_dir,
+            };
+            match crate::services::start(svc, ready_url, launch, &cancel.main).await {
                 Ok(r) => {
                     report.services.push(crate::report::ServiceReport {
                         id: r.id.clone(),
@@ -663,7 +722,11 @@ pub async fn execute_with_id(
                     for r in running.iter_mut() {
                         r.stop().await;
                     }
-                    return finish(engine, &emitter, fail(report, e), started);
+                    let mut report = fail(report, e);
+                    if cancel.main.is_cancelled() {
+                        report.result = RunResult::Cancelled;
+                    }
+                    return finish(engine, &emitter, report, started);
                 }
             }
         }
@@ -692,54 +755,13 @@ pub async fn execute_with_id(
     let frame = Frame { flow: lf, prefix: String::new(), inputs, vars, steps: Mutex::new(serde_json::Map::new()) };
 
     // Resume: earlier top-level steps take their results from the old run.
-    let mut resume_index = 0;
     let mut seeded = Vec::new();
-    if let Some((old, from)) = &req.resume {
-        let mismatch = if old.flow_id != flow.id {
-            Some(format!("run {} is a run of {}, not {}", old.run_id, old.flow_id, flow.id))
-        } else if old.environment != environment {
-            Some(format!(
-                "run {} used environment {}; resume with the same environment",
-                old.run_id,
-                old.environment.as_deref().unwrap_or("(none)")
-            ))
-        } else if old.inputs != report.inputs {
-            Some(format!("run {} used different inputs; resume with the same inputs", old.run_id))
-        } else {
-            None
-        };
-        if let Some(m) = mismatch {
-            return finish(engine, &emitter, fail(report, m), started);
-        }
-        match flow.steps.iter().position(|s| &s.id == from || from.starts_with(&format!("{}/", s.id))) {
-            Some(i) => {
-                resume_index = i;
-                for s in &flow.steps[..i] {
-                    let Some(prev) = old.steps.iter().find(|r| r.id == s.id) else { continue };
-                    if prev.status.is_some_and(|st| st.is_failure()) && !s.continue_on_error {
-                        let msg = format!(
-                            "step {} failed in run {}; resume from {} or earlier",
-                            prev.id, old.run_id, prev.id
-                        );
-                        return finish(engine, &emitter, fail(report, msg), started);
-                    }
-                    let restored = unredact_step(prev, &ctx.secrets);
-                    seed_step(&frame, &restored);
-                    emitter.emit(EventBody::StepFinished { step: Box::new(prev.clone()) });
-                    seeded.push(prev.clone());
-                }
-            }
-            None => {
-                for r in running.iter_mut() {
-                    r.stop().await;
-                }
-                return finish(
-                    engine,
-                    &emitter,
-                    fail(report, format!("no top-level step '{from}' to resume from")),
-                    started,
-                );
-            }
+    if let Some((old, _)) = &req.resume {
+        for s in &flow.steps[..resume_index] {
+            let Some(prev) = old.steps.iter().find(|r| r.id == s.id) else { continue };
+            seed_step(&frame, &unredact_step(prev, &ctx.secrets));
+            emitter.emit(EventBody::StepFinished { step: Box::new(prev.clone()) });
+            seeded.push(prev.clone());
         }
     }
 

@@ -218,13 +218,17 @@ services:
       timeout: 60s                           # default 30s
 ```
 
-Services start after preflight and before the first step, and stop (TERM,
-then KILL for the whole process group) after cleanups. When the ready check
+Services start after preflight and before the first step, and stop after
+cleanups: the whole process group gets TERM, and whatever is still running
+3 seconds later gets KILL. When the ready check
 already passes before starting, Lest uses the running instance instead
 (`reuse: false` to always start one), so a dev server you keep running is
 used as is. A service declared with the same id in several called flows starts
 once per run. Its output is kept as `services/service-<id>.log` in the run's
-artifacts. Services receive vars, inputs, `LEST_PROJECT_DIR` and `LEST_RUN_DIR`.
+artifacts, with secret values redacted. Services receive vars (with the
+environment applied), `LEST_PROJECT_DIR` and `LEST_RUN_DIR`; services of the
+flow being run also receive its inputs. A called flow's services start
+before it is called, so they see its vars and default inputs only.
 
 ## Expressions
 

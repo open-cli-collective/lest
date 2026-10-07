@@ -616,3 +616,36 @@ steps:
     let e = r.error.unwrap();
     assert!(e.contains("exited") && e.contains("port already in use"), "{e}");
 }
+
+#[tokio::test]
+async fn services_that_ignore_term_are_killed_and_logs_are_redacted() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: stubborn
+name: Stubborn
+secrets: [token]
+services:
+  - id: stubborn
+    run: |
+      echo "token is $TOKEN"
+      sh -c 'trap "" TERM; echo $$ > "$LEST_RUN_DIR/child.pid"; while true; do sleep 1; done' &
+      echo listening
+      wait
+    env: { TOKEN: "${{ secrets.token }}" }
+    ready: { log: listening }
+steps:
+  - { id: a, run: "sleep 0.3" }
+"#,
+    )]);
+    let engine = f.engine(&[("token", "svc-secret-value")]);
+    let (r, _) = run(&engine, "stubborn", &[]).await;
+    assert_eq!(r.result, RunResult::Passed, "{r:#?}");
+    let dir = engine.store.run_dir("stubborn", &r.run_id).join("artifacts");
+    let pid = std::fs::read_to_string(dir.join("child.pid")).unwrap();
+    let alive = std::process::Command::new("kill").args(["-0", pid.trim()]).status().unwrap().success();
+    assert!(!alive, "a TERM-ignoring service process survived the run");
+    let log = std::fs::read_to_string(dir.join("services/service-stubborn.log")).unwrap();
+    assert!(log.contains("token is [redacted:token]"), "{log}");
+}

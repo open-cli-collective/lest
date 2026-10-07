@@ -545,10 +545,15 @@ fn check_browser(ctx: &mut Ctx, step: &Step, at: &str, v: &BTreeSet<String>) {
         if let Some(t) = &a.expect_text {
             ctx.check_template(&aat, &t.text, WITH_SECRETS, v);
         }
+        // expectUrl runs as a JavaScript regular expression in the browser.
         if let Some(re) = &a.expect_url
-            && let Err(e) = Regex::new(re)
+            && re.contains("(?")
+            && !re.contains("(?:")
+            && !re.contains("(?=")
+            && !re.contains("(?!")
+            && !re.contains("(?<")
         {
-            ctx.err(&aat, format!("expectUrl is not a valid regex: {e}"));
+            ctx.err(&aat, "expectUrl is a JavaScript regular expression; inline flags such as (?i) are not supported");
         }
         if let Some(w) = &a.wait
             && let Err(e) = w.parse()

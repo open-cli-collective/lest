@@ -622,6 +622,18 @@ fn regex_redacted() -> regex::Regex {
 
 fn cmd_affected(ctx: &Ctx, a: AffectedArgs) -> Result<u8> {
     let catalog = ctx.catalog();
+    // A flow that does not parse cannot be selected; say so rather than
+    // quietly leaving it (and its callers) out.
+    let broken: Vec<_> = catalog.diagnostics.iter().filter(|d| d.severity == Severity::Error).collect();
+    if !broken.is_empty() {
+        for d in &broken {
+            eprintln!("{d}");
+        }
+        return Err(fail(
+            exit::USAGE,
+            format!("{} validation error(s); fix them before selecting flows", broken.len()),
+        ));
+    }
     let changed = lest_core::affected::changed_since(&ctx.project.root, &a.base).map_err(|e| fail(exit::ERRORED, e))?;
     let affected = lest_core::affected::affected(&catalog, &changed).map_err(|e| fail(exit::USAGE, e))?;
     if a.id {

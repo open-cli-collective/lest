@@ -21,23 +21,35 @@ jobs:
         env:
           LEST_SECRET_API_TOKEN: ${{ secrets.API_TOKEN }}
         run: |
-          for flow in $(lest affected --base origin/main --id); do
+          set -e
+          # On its own line, so a failure (a missing base, a broken flow)
+          # fails the job instead of selecting nothing.
+          flows="$(lest affected --base origin/main --id)"
+          set +e
+          failed=0
+          for flow in $flows; do
             lest run "$flow" --non-interactive --junit "junit-$flow.xml" || failed=1
           done
-          exit ${failed:-0}
+          exit $failed
 ```
 
 ## Choosing what to run
 
 `lest affected --base <ref>` lists the flows a change touches:
 
-- a changed file matches one of the flow's `affects:` globs,
-- the flow's own file changed, or
+- a changed file matches one of the flow's `affects:` globs (`*` stays
+  within a directory, `**` crosses directories),
+- the flow's own file, or a browser `script:` it runs, changed,
+- `lest.yaml` changed (every flow is affected), or
 - the flow calls an affected flow (suites run when any member is affected).
 
 Changes are counted from the merge base of `<ref>` and `HEAD`, plus staged,
-unstaged and untracked files. Paths are relative to the project root, so a
-project in a subdirectory of the repository works.
+unstaged and untracked files; a rename counts as both paths. Paths are
+relative to the project root, so a project in a subdirectory of the
+repository works. On the base branch itself the merge base is `HEAD`, so
+only uncommitted changes count: run everything there instead (for example
+`lest run everything`). If any flow fails to validate, `lest affected` exits
+2 rather than leaving it out.
 
 ```console
 $ lest affected --base origin/main
@@ -58,10 +70,12 @@ sign-in         | app/server.mjs
   views.
 - **JSON:** `-o <path>` writes the full report (`lest schema report`
   describes it).
-- **Evidence:** `lest bundle <run> -o evidence.zip` zips the report and every
-  artifact with a `manifest.json` of SHA-256 checksums, ready to attach to a
-  ticket, release or audit. Secret values are already redacted in everything
-  it contains.
+- **Evidence:** `lest bundle <run> -o evidence.zip` zips the report and the
+  files it lists (step artifacts, service logs, the demo cut) with a
+  `manifest.json` of SHA-256 checksums, ready to attach to a ticket, release
+  or audit. Anything else a step wrote into the run directory stays out. Text
+  artifacts and the report are redacted; binary artifacts (images, videos)
+  are included as they are, so keep secrets off screen.
 
 ## Secrets
 
@@ -88,5 +102,6 @@ notify:
 
 `json` posts the run summary (flow, run id, result, environment, duration,
 the failing step and its headline, warnings). `slack` posts an
-incoming-webhook message. Notifications go out after the report is written,
-time out after 10 seconds, and never print the URL, which may embed a secret.
+incoming-webhook message, with flow names and errors escaped. Notifications
+go out after the report is written, all at once, so the slowest one bounds
+the wait at 10 seconds; they never print the URL, which may embed a secret.

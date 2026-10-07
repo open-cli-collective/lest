@@ -1,0 +1,417 @@
+[
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 0,
+  "atMs": 1791378859545,
+  "kind": "runStarted",
+  "flowId": "connect-weather",
+  "flowName": "Connect the weather service",
+  "environment": "local",
+  "runDir": "/tmp/lest-data/runs/connect-weather/20261007T131419Z-j4yh",
+  "steps": [
+   {
+    "id": "sign_in",
+    "name": "Sign in (off camera)",
+    "kind": "flow",
+    "children": [
+     {
+      "id": "sign_in/login",
+      "name": "Sign in on the login page",
+      "kind": "browser"
+     }
+    ]
+   },
+   {
+    "id": "record",
+    "name": "Record the walkthrough",
+    "kind": "browser"
+   }
+  ],
+  "finally": [],
+  "tools": []
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 1,
+  "atMs": 1791378859588,
+  "kind": "demoProgress",
+  "message": "starting service sprout"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 2,
+  "atMs": 1791378859803,
+  "kind": "stepStarted",
+  "stepId": "sign_in",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 3,
+  "atMs": 1791378859803,
+  "kind": "stepStarted",
+  "stepId": "sign_in/login",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 4,
+  "atMs": 1791378860164,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[0] fill ok"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 5,
+  "atMs": 1791378860171,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[1] fill ok"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 6,
+  "atMs": 1791378860210,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[2] click ok"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 7,
+  "atMs": 1791378860240,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[3] expectText ok"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 8,
+  "atMs": 1791378860257,
+  "kind": "browserPage",
+  "stepId": "sign_in/login",
+  "cdpPort": 61412,
+  "targetId": "65FCAA00EEE2D6F470F29A2725DCBC49",
+  "url": "http://127.0.0.1:4173/login"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 9,
+  "atMs": 1791378860257,
+  "kind": "browserPage",
+  "stepId": "sign_in/login",
+  "cdpPort": 61412,
+  "targetId": "65FCAA00EEE2D6F470F29A2725DCBC49",
+  "url": "http://127.0.0.1:4173/login"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 10,
+  "atMs": 1791378860257,
+  "kind": "browserPage",
+  "stepId": "sign_in/login",
+  "cdpPort": 61412,
+  "targetId": "65FCAA00EEE2D6F470F29A2725DCBC49",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 11,
+  "atMs": 1791378860258,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[4] screenshot ok"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 12,
+  "atMs": 1791378860282,
+  "kind": "stepArtifact",
+  "stepId": "sign_in/login",
+  "artifact": {
+   "label": "signed-in",
+   "path": "artifacts/sign_in__login/signed-in.png",
+   "mime": "image/png",
+   "bytes": 49844
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 13,
+  "atMs": 1791378860282,
+  "kind": "browserClosed",
+  "stepId": "sign_in/login"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 14,
+  "atMs": 1791378860282,
+  "kind": "stepFinished",
+  "step": {
+   "id": "sign_in/login",
+   "name": "Sign in on the login page",
+   "kind": "browser",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:19.803098Z",
+   "finishedAt": "2026-10-07T13:14:20.282345Z",
+   "durationMs": 479,
+   "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+   "exitCode": 0,
+   "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+   "artifacts": [
+    {
+     "label": "signed-in",
+     "path": "artifacts/sign_in__login/signed-in.png",
+     "mime": "image/png",
+     "bytes": 49844
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 15,
+  "atMs": 1791378860282,
+  "kind": "stepFinished",
+  "step": {
+   "id": "sign_in",
+   "name": "Sign in (off camera)",
+   "kind": "flow",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:19.803022Z",
+   "finishedAt": "2026-10-07T13:14:20.282374Z",
+   "durationMs": 479,
+   "resolved": "flow sign-in",
+   "children": [
+    {
+     "id": "sign_in/login",
+     "name": "Sign in on the login page",
+     "kind": "browser",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:19.803098Z",
+     "finishedAt": "2026-10-07T13:14:20.282345Z",
+     "durationMs": 479,
+     "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+     "exitCode": 0,
+     "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+     "artifacts": [
+      {
+       "label": "signed-in",
+       "path": "artifacts/sign_in__login/signed-in.png",
+       "mime": "image/png",
+       "bytes": 49844
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 16,
+  "atMs": 1791378860282,
+  "kind": "stepStarted",
+  "stepId": "record",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 17,
+  "atMs": 1791378860736,
+  "kind": "browserPage",
+  "stepId": "record",
+  "cdpPort": 61420,
+  "targetId": "B945BDAAD5D839F8CC44BDFF1E35BECA",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 18,
+  "atMs": 1791378860736,
+  "kind": "browserPage",
+  "stepId": "record",
+  "cdpPort": 61420,
+  "targetId": "B945BDAAD5D839F8CC44BDFF1E35BECA",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 19,
+  "atMs": 1791378861935,
+  "kind": "stepBeat",
+  "stepId": "record",
+  "beat": {
+   "marker": "plants",
+   "atMs": 1497
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 20,
+  "atMs": 1791378864036,
+  "kind": "browserPage",
+  "stepId": "record",
+  "cdpPort": 61420,
+  "targetId": "73C04B13E3153D55CB6738AF7A9C8EC9",
+  "url": "http://127.0.0.1:4173/oauth/authorize?client=sprout"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 21,
+  "atMs": 1791378864184,
+  "kind": "stepBeat",
+  "stepId": "record",
+  "beat": {
+   "marker": "consent",
+   "atMs": 3773
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 22,
+  "atMs": 1791378865985,
+  "kind": "browserPage",
+  "stepId": "record",
+  "cdpPort": 61420,
+  "targetId": "73C04B13E3153D55CB6738AF7A9C8EC9",
+  "url": "http://127.0.0.1:4173/oauth/approve"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 23,
+  "atMs": 1791378866586,
+  "kind": "browserPage",
+  "stepId": "record",
+  "cdpPort": 61420,
+  "targetId": "B945BDAAD5D839F8CC44BDFF1E35BECA",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 24,
+  "atMs": 1791378866736,
+  "kind": "stepBeat",
+  "stepId": "record",
+  "beat": {
+   "marker": "connected",
+   "atMs": 6397
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 25,
+  "atMs": 1791378868386,
+  "kind": "stepArtifact",
+  "stepId": "record",
+  "artifact": {
+   "label": "connected",
+   "path": "artifacts/record/connected.png",
+   "mime": "image/png",
+   "bytes": 44679
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 26,
+  "atMs": 1791378868511,
+  "kind": "browserClosed",
+  "stepId": "record"
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 27,
+  "atMs": 1791378868512,
+  "kind": "stepArtifact",
+  "stepId": "record",
+  "artifact": {
+   "label": "Recording",
+   "path": "artifacts/record/video/page@90b270b529d549d14c0658ad2335148b.webm",
+   "mime": "video/webm",
+   "bytes": 252891
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 28,
+  "atMs": 1791378868512,
+  "kind": "stepArtifact",
+  "stepId": "record",
+  "artifact": {
+   "label": "Recording (popup)",
+   "path": "artifacts/record/video/page@a4560dbf571a1b6614c213cbb287ab8c.webm",
+   "mime": "video/webm",
+   "bytes": 75274
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 29,
+  "atMs": 1791378868512,
+  "kind": "stepFinished",
+  "step": {
+   "id": "record",
+   "name": "Record the walkthrough",
+   "kind": "browser",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:20.282386Z",
+   "finishedAt": "2026-10-07T13:14:28.512129Z",
+   "durationMs": 8229,
+   "resolved": "browser script connect-weather.mjs",
+   "exitCode": 0,
+   "artifacts": [
+    {
+     "label": "connected",
+     "path": "artifacts/record/connected.png",
+     "mime": "image/png",
+     "bytes": 44679
+    },
+    {
+     "label": "Recording",
+     "path": "artifacts/record/video/page@90b270b529d549d14c0658ad2335148b.webm",
+     "mime": "video/webm",
+     "bytes": 252891
+    },
+    {
+     "label": "Recording (popup)",
+     "path": "artifacts/record/video/page@a4560dbf571a1b6614c213cbb287ab8c.webm",
+     "mime": "video/webm",
+     "bytes": 75274
+    }
+   ],
+   "beats": [
+    {
+     "marker": "plants",
+     "atMs": 1497
+    },
+    {
+     "marker": "consent",
+     "atMs": 3773
+    },
+    {
+     "marker": "connected",
+     "atMs": 6397
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131419Z-j4yh",
+  "seq": 30,
+  "atMs": 1791378868513,
+  "kind": "runFinished",
+  "result": "passed",
+  "durationMs": 8968,
+  "error": null,
+  "reportPath": "/tmp/lest-data/runs/connect-weather/20261007T131419Z-j4yh/report.json"
+ }
+]

@@ -107,6 +107,10 @@ pub fn store_file(
     Ok(Artifact { label: label.map(str::to_string).unwrap_or(file_name), path: rel, mime: mime.to_string(), bytes })
 }
 
+pub fn mime_for_name(name: &str) -> &'static str {
+    mime_for(Path::new(name))
+}
+
 pub fn mime_for(path: &Path) -> &'static str {
     match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
         Some("png") => "image/png",
@@ -118,7 +122,11 @@ pub fn mime_for(path: &Path) -> &'static str {
         Some("webm") => "video/webm",
         Some("vtt") => "text/vtt",
         Some("json") => "application/json",
-        Some("html" | "htm") => "text/html",
+        Some("html" | "htm") => "text/html; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript",
+        Some("css") => "text/css",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
         Some("xml") => "application/xml",
         Some("csv") => "text/csv",
         Some("md") => "text/markdown",

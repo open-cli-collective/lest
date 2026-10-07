@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lest-core", "crates/lest"]
+members = ["crates/lest-core", "crates/lest-server", "crates/lest"]
 
 [workspace.package]
 version = "0.1.0"
@@ -35,3 +35,4 @@ tempfile = "3"
 clap = { version = "4", features = ["derive", "env"] }
 axum = "0.8"
 lest-core = { path = "crates/lest-core" }
+lest-server = { path = "crates/lest-server" }

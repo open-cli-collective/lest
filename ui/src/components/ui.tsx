@@ -143,6 +143,31 @@ export function Lightbox({ src, caption, onClose }: { src: string; caption: stri
   );
 }
 
+/** A small modal with a title, a body and a Close button. */
+export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    closeRef.current?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="dialog-scrim" onClick={onClose}>
+      <div className="dialog panel" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="panel-head">
+          {title}
+          <button ref={closeRef} type="button" className="btn btn-sm btn-icon right" onClick={onClose}>
+            <IconX size={14} />
+            <span className="visually-hidden">Close</span>
+          </button>
+        </div>
+        <div className="dialog-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function Switch({
   checked,
   onChange,

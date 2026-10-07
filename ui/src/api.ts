@@ -1,7 +1,18 @@
 // Calls to the Lest server. The page is served same-origin with the auth
 // cookie already set, so plain fetch works.
 
-import type { FlowDetail, FlowsResponse, RunResponse, RunsResponse, StateResponse } from "./types";
+import type {
+  AgentLaunch,
+  AiConfig,
+  Explanation,
+  FlowDetail,
+  FlowsResponse,
+  Handoff,
+  RunResponse,
+  RunsResponse,
+  SettingsResponse,
+  StateResponse,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -68,6 +79,17 @@ export const api = {
     post<{ cancelled: string }>(`/runs/${encodeURIComponent(id)}/cancel`, { stage }),
   reveal: (id: string, path?: string) => post<{ revealed: string }>(`/runs/${encodeURIComponent(id)}/reveal`, { path }),
   toolLogin: (name: string) => post<LoginResponse>(`/tools/${encodeURIComponent(name)}/login`),
+  settings: () => call<SettingsResponse>("/settings"),
+  saveAi: (ai: AiConfig) =>
+    call<SettingsResponse>("/settings/ai", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(ai),
+    }),
+  explain: (id: string, stepId: string) => post<Explanation>(`/runs/${encodeURIComponent(id)}/explain`, { stepId }),
+  handoff: (id: string, stepId: string) =>
+    call<Handoff>(`/runs/${encodeURIComponent(id)}/handoff?${new URLSearchParams({ step: stepId })}`),
+  openAgent: (id: string, stepId: string) => post<AgentLaunch>(`/runs/${encodeURIComponent(id)}/agent`, { stepId }),
 };
 
 export function fileUrl(runId: string, path: string): string {

@@ -209,8 +209,10 @@ AI is optional and off by default. Turning it on or off changes no layout.
   agent CLI in the project with that context. Lest does not build a chat.
   The user's agent already has tools, permissions and memory; Lest gives it a
   good starting point.
-- **Agent docs:** `lest docs agent` prints the authoring guide and schema for
-  an agent to read on demand.
+- **Agent docs:** `lest docs agent` prints the authoring guide and the format
+  references for an agent to read on demand.
+
+[ai.md](ai.md) describes the behavior.
 
 Rules: no screen region exists only for AI; AI fills slots that already have
 deterministic content; AI actions live in menus, never as top-level buttons

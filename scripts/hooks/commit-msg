@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Conventional-commit subject and no AI-tooling mentions (the AGENTS.md and
+# CLAUDE.md file names are exempt).
+set -euo pipefail
+msg_file="$1"
+subject="$(head -n1 "$msg_file")"
+if ! printf '%s' "$subject" | grep -qE '^(feat|fix|refactor|test|docs|ci|chore|build|perf|style)(\([^)]+\))?!?: .+'; then
+  echo "commit-msg: subject must be a conventional commit: $subject" >&2
+  exit 1
+fi
+if grep -v '^#' "$msg_file" | sed -E 's/(AGENTS|CLAUDE)\.md//g' | grep -iqE 'claude|anthropic|chatgpt|copilot|codex'; then
+  echo "commit-msg: message mentions AI tooling" >&2
+  exit 1
+fi

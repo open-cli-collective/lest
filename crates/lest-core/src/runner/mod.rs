@@ -399,6 +399,24 @@ pub async fn execute_with_id(
     run_id: String,
 ) -> RunReport {
     let emitter = Emitter::new(&run_id, tx);
+    let report = run_flow(engine, req, &emitter, cancel).await;
+    // Notifications go out after the report is written and the run has
+    // finished, so a slow webhook never delays either.
+    if !engine.project.config.notify.is_empty() {
+        for outcome in crate::notify::send(&engine.project, engine.keyring.as_ref(), &report).await {
+            let (ok, message) = match outcome {
+                Ok(m) => (true, m),
+                Err(m) => (false, m),
+            };
+            emitter.emit(EventBody::Notified { ok, message });
+        }
+    }
+    report
+}
+
+async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: RunCancel) -> RunReport {
+    let emitter = emitter.clone();
+    let run_id = emitter.run_id.clone();
     let started = Instant::now();
     let started_at = now_rfc3339();
     let started_at_ms = now_ms();

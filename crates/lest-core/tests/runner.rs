@@ -649,3 +649,61 @@ steps:
     let log = std::fs::read_to_string(dir.join("services/service-stubborn.log")).unwrap();
     assert!(log.contains("token is [redacted:token]"), "{log}");
 }
+
+#[tokio::test]
+async fn failed_runs_notify_webhooks_with_a_summary() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (got_tx, mut got_rx) = mpsc::unbounded_channel::<String>();
+    tokio::spawn(async move {
+        loop {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let got_tx = got_tx.clone();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buf = vec![0u8; 16384];
+                let mut req = String::new();
+                loop {
+                    let n = sock.read(&mut buf).await.unwrap();
+                    req.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    if n == 0 || (req.contains("\r\n\r\n") && req.trim_end().ends_with('}')) {
+                        break;
+                    }
+                }
+                let _ = got_tx.send(req);
+                sock.write_all(b"HTTP/1.1 204 No Content\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: notify
+name: Notify me
+steps:
+  - { id: boom, run: 'echo "error: broken" >&2; exit 1' }
+"#,
+    )]);
+    std::fs::write(
+        f.path().join("lest.yaml"),
+        format!(
+            "flows: [flows]\nsecrets:\n  backends: [env: {{}}]\nnotify:\n  - webhook: \"http://127.0.0.1:{port}/hook/${{{{ secrets.hook_token }}}}\"\n    secrets: [hook_token]\n"
+        ),
+    )
+    .unwrap();
+    // SAFETY: unique variable name; no other test reads it.
+    unsafe { std::env::set_var("LEST_SECRET_HOOK_TOKEN", "t0ken-xyz") };
+    let (r, events) = run(&f.engine(&[]), "notify", &[]).await;
+    assert_eq!(r.result, RunResult::Failed);
+    let req = got_rx.recv().await.unwrap();
+    assert!(req.starts_with("POST /hook/t0ken-xyz "), "{req}");
+    assert!(req.contains("\"result\":\"failed\""), "{req}");
+    assert!(req.contains("exited 1: error: broken"), "{req}");
+    let notified: Vec<_> = events.iter().filter(|e| matches!(e.body, EventBody::Notified { ok: true, .. })).collect();
+    assert_eq!(notified.len(), 1);
+    // The message never contains the secret URL.
+    assert!(!format!("{:?}", notified[0].body).contains("t0ken"));
+}

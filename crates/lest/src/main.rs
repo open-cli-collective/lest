@@ -101,6 +101,8 @@ async fn dispatch(cli: Cli, style: Style) -> Result<u8> {
         Command::Validate(a) => cmd_validate(&ctx, a, style),
         Command::Runs { command } => cmd_runs(&ctx, command, style),
         Command::Cleanup(a) => cmd_cleanup(&ctx, a, style).await,
+        Command::Affected(a) => cmd_affected(&ctx, a),
+        Command::Bundle(a) => cmd_bundle(&ctx, a),
         Command::Init(a) => cmd_init(&ctx, a),
         Command::Doctor => cmd_doctor(&ctx, style).await,
         Command::Secrets { command } => cmd_secrets(&ctx, command),
@@ -615,6 +617,32 @@ async fn cmd_cleanup(ctx: &Ctx, a: CleanupArgs, style: Style) -> Result<u8> {
 
 fn regex_redacted() -> regex::Regex {
     regex::Regex::new(r"\[redacted:([A-Za-z_][A-Za-z0-9_]*)\]").expect("re")
+}
+
+fn cmd_affected(ctx: &Ctx, a: AffectedArgs) -> Result<u8> {
+    let catalog = ctx.catalog();
+    let changed = lest_core::affected::changed_since(&ctx.project.root, &a.base).map_err(|e| fail(exit::ERRORED, e))?;
+    let affected = lest_core::affected::affected(&catalog, &changed).map_err(|e| fail(exit::USAGE, e))?;
+    if a.id {
+        for f in &affected {
+            println!("{}", f.flow_id);
+        }
+    } else {
+        let rows: Vec<Vec<String>> = affected.iter().map(|f| vec![f.flow_id.clone(), f.reasons.join(", ")]).collect();
+        print!("{}", render::table(&["FLOW", "WHY"], &rows));
+        eprintln!("{} changed file(s), {} affected flow(s)", changed.len(), affected.len());
+    }
+    Ok(0)
+}
+
+fn cmd_bundle(ctx: &Ctx, a: BundleArgs) -> Result<u8> {
+    let store = ctx.store();
+    let report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let out = a.output.unwrap_or_else(|| PathBuf::from(format!("lest-{}-{}.zip", report.flow_id, report.run_id)));
+    let manifest = lest_core::bundle::bundle(&store.run_dir(&report.flow_id, &report.run_id), &report, &out)
+        .map_err(|e| fail(exit::ERRORED, e))?;
+    eprintln!("wrote {} ({} files)", out.display(), manifest.files.len());
+    Ok(0)
 }
 
 const EXAMPLE_FLOW: &str = r#"apiVersion: lest/v1

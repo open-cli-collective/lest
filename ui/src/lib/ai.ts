@@ -43,8 +43,7 @@ export function useAiSettings(): SettingsResponse | null {
   return s;
 }
 
-/** Saves the AI settings. The agent command has no field in the UI, so the
- * one in the settings file is kept. */
+/** Saves the AI settings and shares the result with every view. */
 export async function saveAi(ai: AiConfig): Promise<SettingsResponse> {
   const s = await api.saveAi(ai);
   settings = s;

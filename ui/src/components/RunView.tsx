@@ -583,7 +583,7 @@ function FailedCard({ s, ctx }: { s: StepState; ctx: Ctx }) {
   const stored = !ctx.live && !!run.report;
   const explainState = useExplanation(ai?.status ?? null, stored ? run.runId : null, s.id);
   const slot = explainSlot(headline, explainState);
-  const handoff = useHandoff(ai?.status ?? null, stored ? run.runId : null, s.id);
+  const handoff = useHandoff(ai?.status ?? null, ai?.ai.agent ?? "", stored ? run.runId : null, s.id);
   const [launch, setLaunch] = useState<{ error: string; command: string | null } | null>(null);
   const openAgent = async () => {
     try {
@@ -702,7 +702,7 @@ function useExplanation(status: AiStatus | null, runId: string | null, stepId: s
 }
 
 /** The agent handoff for a finished run, fetched when AI may be on. */
-function useHandoff(status: AiStatus | null, runId: string | null, stepId: string): Handoff | null {
+function useHandoff(status: AiStatus | null, agent: string, runId: string | null, stepId: string): Handoff | null {
   const [handoff, setHandoff] = useState<Handoff | null>(null);
   const resolved = status?.resolved?.label ?? "";
   useEffect(() => {
@@ -718,7 +718,7 @@ function useHandoff(status: AiStatus | null, runId: string | null, stepId: strin
     return () => {
       alive = false;
     };
-  }, [status?.configured, resolved, runId, stepId]);
+  }, [status?.configured, resolved, agent, runId, stepId]);
   return handoff;
 }
 

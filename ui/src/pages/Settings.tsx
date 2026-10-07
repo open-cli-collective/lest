@@ -99,10 +99,12 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
   const [saved, setSaved] = useState<"" | "saving" | "saved">("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pending = useRef<AiConfig | null>(null);
   const latest = useRef(ai);
   latest.current = ai;
 
   const save = async (next: AiConfig) => {
+    pending.current = null;
     setSaved("saving");
     try {
       await saveAi(clean(next));
@@ -117,10 +119,19 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
     const next = { ...latest.current, ...patch };
     setAi(next);
     clearTimeout(timer.current);
-    if (debounce) timer.current = setTimeout(() => void save(next), TEXT_SAVE_DELAY_MS);
-    else void save(next);
+    if (debounce) {
+      pending.current = next;
+      timer.current = setTimeout(() => void save(next), TEXT_SAVE_DELAY_MS);
+    } else void save(next);
   };
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // Leaving the page saves an edit still waiting for its pause.
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      if (pending.current) void saveAi(clean(pending.current)).catch(() => {});
+    },
+    [],
+  );
   useEffect(() => {
     if (saved !== "saved") return;
     const t = setTimeout(() => setSaved(""), 2000);

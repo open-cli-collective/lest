@@ -14,7 +14,7 @@ export default async function ({ ui, beat, phase, popup, screenshot }) {
     await consent.waitForEvent("close");
   });
   await phase("connected", async () => {
-    await ui.expectText("#weather-status", "Connected");
+    await ui.expectText("#weather-text", "Rain expected");
     beat("connected");
     await ui.dwell(1500);
     await screenshot("connected");

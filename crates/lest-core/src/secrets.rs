@@ -180,7 +180,7 @@ impl Redactor {
             .filter(|(_, v)| v.chars().count() >= 4)
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
-        values.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        values.sort_by_key(|v| std::cmp::Reverse(v.0.len()));
         Redactor { values }
     }
 

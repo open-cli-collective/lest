@@ -52,7 +52,12 @@ lest runs list
 ## What a flow can do
 
 - **Steps:** `run` a script, send an `http` request, `assert` conditions,
-  call another `flow`, or group steps in order or in `parallel`.
+  drive a `browser`, call another `flow`, or group steps in order or in
+  `parallel`.
+- **Browsers:** declarative actions or a Playwright script, saved sign-in
+  sessions, screenshots at failure, and recorded videos with a visible cursor.
+- **Services:** start a dev server or mock before the steps, wait until it
+  is ready, and stop it after.
 - **Expressions:** one language, [CEL](https://github.com/google/cel-spec),
   for conditions, assertions and outputs, and `${{ expr }}` inside strings.
   Values reach scripts as environment variables, never as text spliced into
@@ -70,9 +75,24 @@ lest runs list
 - **Reports:** a JSON report per run (`lest schema report` describes it) and
   JUnit XML for CI.
 
+## Examples
+
+[`examples/`](examples) is a project with a small sample web app (Sprout, a
+plant-care dashboard) and flows that exercise every feature: an API flow with
+polling and cleanup, a browser sign-in that saves a session, a dashboard check
+that reuses it, a suite that runs them in parallel, a recorded walkthrough
+with a popup, and a flow that fails on purpose.
+
+```bash
+cd examples
+npm ci && npx playwright install chromium
+lest run everything
+```
+
 ## Documentation
 
 - [Flow format](docs/flow-format.md)
+- [Browser steps](docs/browser.md)
 - [Design](docs/design.md): why Lest works the way it does
 - [Development](docs/development.md)
 

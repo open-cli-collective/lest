@@ -568,3 +568,51 @@ steps:
     let text = std::fs::read_to_string(engine.store.run_dir("art", &r.run_id).join(&arts[0].path)).unwrap();
     assert_eq!(text.trim(), "token=[redacted:token]");
 }
+
+#[tokio::test]
+async fn services_start_before_steps_and_stop_after() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: svc
+name: Svc
+services:
+  - id: ticker
+    run: 'echo "$$" > "$LEST_RUN_DIR/ticker.pid"; echo listening; while true; do sleep 1; done'
+    ready: { log: listening, timeout: 5s }
+steps:
+  - id: alive
+    run: 'kill -0 "$(cat "$LEST_RUN_DIR/ticker.pid")"'
+"#,
+    )]);
+    let engine = f.engine(&[]);
+    let (r, _) = run(&engine, "svc", &[]).await;
+    assert_eq!(r.result, RunResult::Passed, "{r:#?}");
+    assert_eq!(r.services[0].id, "ticker");
+    let pid = std::fs::read_to_string(engine.store.run_dir("svc", &r.run_id).join("artifacts/ticker.pid")).unwrap();
+    let alive = std::process::Command::new("kill").args(["-0", pid.trim()]).status().unwrap().success();
+    assert!(!alive, "service still running after the run");
+}
+
+#[tokio::test]
+async fn a_service_that_exits_early_errors_the_run() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: svc-dies
+name: Svc dies
+services:
+  - id: broken
+    run: 'echo "port already in use" >&2; exit 1'
+    ready: { log: listening }
+steps:
+  - { id: a, run: "true" }
+"#,
+    )]);
+    let (r, _) = run(&f.engine(&[]), "svc-dies", &[]).await;
+    assert_eq!(r.result, RunResult::Errored);
+    let e = r.error.unwrap();
+    assert!(e.contains("exited") && e.contains("port already in use"), "{e}");
+}

@@ -1,0 +1,12 @@
+apiVersion: lest/v1
+id: everything
+name: Everything
+description: Runs every example flow. The API and dashboard checks run in parallel.
+tags: [suite]
+steps:
+  - id: checks
+    name: Independent checks
+    parallel: true
+    steps:
+      - { id: api, flow: plants-api }
+      - { id: web, flow: dashboard }

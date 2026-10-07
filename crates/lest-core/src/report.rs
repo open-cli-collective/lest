@@ -95,12 +95,25 @@ pub struct RunReport {
     pub finally: Vec<StepReport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cleanups: Vec<CleanupReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<ServiceReport>,
     /// Set when the run was resumed from a step of an earlier run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resumed_from: Option<ResumeInfo>,
     /// The demo deliverables, when the flow recorded a demo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub demo: Option<DemoReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceReport {
+    pub id: String,
+    /// An already-running instance passed the ready check and was used.
+    pub reused: bool,
+    /// The service's output, relative to the run directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -189,6 +202,9 @@ pub struct StepReport {
     pub headline: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// The step failed but has `continueOnError`, so the run went on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tolerated: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -288,9 +304,12 @@ impl RunReport {
         self.all_steps().into_iter().find(|s| s.id == id)
     }
 
-    /// The first failed leaf step.
+    /// The first failed leaf step that failed the run (not a tolerated
+    /// `continueOnError` failure).
     pub fn first_failure(&self) -> Option<&StepReport> {
-        self.all_steps().into_iter().find(|s| s.status.is_some_and(|st| st.is_failure()) && s.children.is_empty())
+        self.all_steps()
+            .into_iter()
+            .find(|s| s.status.is_some_and(|st| st.is_failure()) && s.children.is_empty() && !s.tolerated)
     }
 }
 

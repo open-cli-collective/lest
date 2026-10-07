@@ -80,3 +80,24 @@ jobs:
           "$GITHUB_WORKSPACE/target/release/lest" init --non-interactive
           "$GITHUB_WORKSPACE/target/release/lest" validate
           "$GITHUB_WORKSPACE/target/release/lest" run hello
+
+  e2e:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: examples/package-lock.json
+      - name: Install Chromium for Playwright
+        working-directory: examples
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - run: make e2e

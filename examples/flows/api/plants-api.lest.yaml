@@ -1,0 +1,60 @@
+apiVersion: lest/v1
+id: plants-api
+name: Plants API
+description: |
+  Signs in through the API, adds a plant, waits for its sensor to pair, and
+  removes the plant again. Shows HTTP steps, outputs, polling and cleanup.
+tags: [api, smoke]
+affects: ["app/**"]
+environments:
+  local: { base_url: "http://127.0.0.1:4173" }
+defaultEnvironment: local
+secrets: [sprout_password]
+services:
+  - id: sprout
+    run: node "$LEST_PROJECT_DIR/app/server.mjs"
+    env: { PORT: "4173" }
+    ready: { http: "http://127.0.0.1:4173/health" }
+steps:
+  - id: sign_in
+    name: Sign in through the API
+    http:
+      method: POST
+      url: "${{ vars.base_url }}/api/login"
+      json: { email: demo@example.com, password: "${{ secrets.sprout_password }}" }
+    outputs: { token: self.body.token }
+
+  - id: add_plant
+    name: Add a plant
+    http:
+      method: POST
+      url: "${{ vars.base_url }}/api/plants"
+      headers: { Authorization: "Bearer ${{ steps.sign_in.outputs.token }}" }
+      json: { name: Basil, room: Kitchen, moisture: 55 }
+    expect: self.status == 201
+    outputs: { id: self.body.id }
+    cleanup:
+      run: |
+        curl -fsS -X DELETE -H "Authorization: Bearer $TOKEN" "$base_url/api/plants/$ID"
+      env:
+        ID: "${{ self.outputs.id }}"
+        TOKEN: "${{ steps.sign_in.outputs.token }}"
+
+  - id: sensor_online
+    name: Wait for the sensor to pair
+    notes: A new plant's sensor reports "pairing" for its first few reads.
+    http:
+      url: "${{ vars.base_url }}/api/plants/${{ steps.add_plant.outputs.id }}/status"
+      headers: { Authorization: "Bearer ${{ steps.sign_in.outputs.token }}" }
+    outputs: { sensor: self.body.sensor }
+    retry: { attempts: 6, delay: 300ms, until: self.outputs.sensor == 'online' }
+
+  - id: listed
+    name: The plant is listed
+    env:
+      TOKEN: "${{ steps.sign_in.outputs.token }}"
+    run: |
+      curl -fsS -H "Authorization: Bearer $TOKEN" "$base_url/api/plants"
+    outputs:
+      names: self.json.items.map(p, p.name)
+    expect: "'Basil' in self.json.items.map(p, p.name)"

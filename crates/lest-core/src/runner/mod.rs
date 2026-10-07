@@ -27,6 +27,7 @@ use crate::spec::{CleanupPolicy, Flow, Step, StepKind};
 use crate::store::{Store, new_run_id};
 use crate::tools::{self, Need};
 
+pub use artifacts::store_file as store_artifact;
 pub use steps::AttemptOutcome;
 
 /// Everything a run needs from its surroundings.
@@ -418,6 +419,7 @@ pub async fn execute_with_id(
             steps: vec![],
             finally: vec![],
             cleanups: vec![],
+            services: vec![],
             resumed_from: None,
             demo: None,
         };
@@ -449,6 +451,7 @@ pub async fn execute_with_id(
         steps: vec![],
         finally: vec![],
         cleanups: vec![],
+        services: vec![],
         resumed_from: req.resume.as_ref().map(|(r, s)| ResumeInfo { run_id: r.run_id.clone(), step: s.clone() }),
         demo: None,
     };
@@ -601,6 +604,71 @@ pub async fn execute_with_id(
         }
     }
 
+    // Services from every reachable flow, started once per id.
+    let mut running: Vec<crate::services::Running> = Vec::new();
+    let mut seen_services = std::collections::BTreeSet::new();
+    for f in &flows {
+        for svc in &f.flow.services {
+            if !seen_services.insert(svc.id.clone()) {
+                continue;
+            }
+            let given = if f.flow.id == flow.id { req.inputs.clone() } else { BTreeMap::new() };
+            let (s_inputs, s_vars) =
+                resolve_inputs_and_vars(&f.flow, environment.as_deref(), &given).unwrap_or_default();
+            let mut scope = Scope::new();
+            scope.set("inputs", Json::Object(s_inputs.clone().into_iter().collect()));
+            scope.set("vars", Json::Object(s_vars.clone().into_iter().collect()));
+            scope.set(
+                "secrets",
+                Json::Object(secrets.iter().map(|(k, v)| (k.clone(), Json::String(v.clone()))).collect()),
+            );
+            scope.set("run", json!({"environment": environment, "id": run_id}));
+            let mut vars_env: Vec<(String, String)> =
+                s_vars.iter().chain(s_inputs.iter()).map(|(k, v)| (k.clone(), expr::stringify(v))).collect();
+            vars_env.extend(tool_env.iter().cloned());
+            vars_env.push(("LEST_PROJECT_DIR".into(), engine.project.root.display().to_string()));
+            vars_env.push(("LEST_RUN_DIR".into(), run_dir.join("artifacts").display().to_string()));
+            let mut bad = None;
+            for (k, t) in &svc.env {
+                match expr::interpolate(t, &scope) {
+                    Ok(v) => vars_env.push((k.clone(), v)),
+                    Err(e) => bad = Some(format!("service {} env {k}: {e}", svc.id)),
+                }
+            }
+            let ready_url = match svc.ready.http.as_deref().map(|u| expr::interpolate(u, &scope)).transpose() {
+                Ok(u) => u,
+                Err(e) => {
+                    bad.get_or_insert(format!("service {} ready.http: {e}", svc.id));
+                    None
+                }
+            };
+            if let Some(e) = bad {
+                for r in running.iter_mut() {
+                    r.stop().await;
+                }
+                return finish(engine, &emitter, fail(report, e), started);
+            }
+            emitter.emit(EventBody::DemoProgress { message: format!("starting service {}", svc.id) });
+            let log_dir = run_dir.join("artifacts").join("services");
+            match crate::services::start(svc, ready_url, vars_env, &env_remove, f.dir(), &log_dir, &cancel.main).await {
+                Ok(r) => {
+                    report.services.push(crate::report::ServiceReport {
+                        id: r.id.clone(),
+                        reused: r.reused,
+                        log: (!r.reused).then(|| crate::catalog::rel_path(&run_dir, &r.log_path)),
+                    });
+                    running.push(r);
+                }
+                Err(e) => {
+                    for r in running.iter_mut() {
+                        r.stop().await;
+                    }
+                    return finish(engine, &emitter, fail(report, e), started);
+                }
+            }
+        }
+    }
+
     let ctx = Arc::new(RunCtx {
         run_id: run_id.clone(),
         run_dir: run_dir.clone(),
@@ -662,6 +730,9 @@ pub async fn execute_with_id(
                 }
             }
             None => {
+                for r in running.iter_mut() {
+                    r.stop().await;
+                }
                 return finish(
                     engine,
                     &emitter,
@@ -691,6 +762,9 @@ pub async fn execute_with_id(
     };
 
     report.cleanups = runner.run_cleanups(report.result).await;
+    for r in running.iter_mut().rev() {
+        r.stop().await;
+    }
     report.warnings = ctx.warnings.lock().expect("lock").clone();
     finish(engine, &emitter, report, started)
 }
@@ -890,6 +964,7 @@ impl<'e> Runner<'e> {
     ) -> StepReport {
         r.finished_at = Some(now_rfc3339());
         r.headline = headline(&r);
+        r.tolerated = step.continue_on_error && r.status.is_some_and(|s| s.is_failure());
         let self_json = step_json(&r, outcome);
         if !step.artifacts.is_empty() && r.status != Some(StepStatus::Skipped) {
             let scope = frame.scope(&self.ctx).with("self", self_json.clone());
@@ -1298,7 +1373,7 @@ fn outcome_json(o: &AttemptOutcome, attempt: u32) -> Json {
 }
 
 /// Emits a redacted output line, capping how many lines one step streams.
-pub(crate) struct LineSink<'a> {
+pub struct LineSink<'a> {
     ctx: &'a RunCtx,
     step_id: String,
     sent: usize,
@@ -1307,10 +1382,10 @@ pub(crate) struct LineSink<'a> {
 const MAX_STREAMED_LINES: usize = 5000;
 
 impl<'a> LineSink<'a> {
-    pub(crate) fn new(ctx: &'a RunCtx, step_id: &str) -> Self {
+    pub fn new(ctx: &'a RunCtx, step_id: &str) -> Self {
         LineSink { ctx, step_id: step_id.to_string(), sent: 0 }
     }
-    pub(crate) fn line(&mut self, stream: Stream, line: String) {
+    pub fn line(&mut self, stream: Stream, line: String) {
         self.sent += 1;
         if self.sent > MAX_STREAMED_LINES {
             if self.sent == MAX_STREAMED_LINES + 1 {

@@ -6,7 +6,9 @@
 |---|---|
 | `crates/lest-core` | Flow format, expressions, validation, runner, reports, store, secrets, tool preflight. No UI code. |
 | `crates/lest` | The `lest` binary: argument parsing, terminal output, command glue. |
-| `docs/` | Reference docs (`flow-format.md`) and the design record (`design.md`). |
+| `harness/` | The Node browser harness the runner starts for browser steps (embedded in the binary). |
+| `examples/` | The Sprout sample app (`app/server.mjs`, no dependencies) and example flows; `scripts/e2e.sh` runs them. |
+| `docs/` | Reference docs (`flow-format.md`, `browser.md`) and the design record (`design.md`). |
 | `scripts/` | Repository checks and git hooks. |
 
 `docs/design.md` records why Lest is shaped the way it is. Read it before
@@ -20,6 +22,7 @@ Requires a stable Rust toolchain (see `rust-toolchain.toml`).
 make check     # what CI runs: lint, test, build
 make test
 make lint      # rustfmt check, clippy -D warnings, workflow pin check
+make e2e       # the example flows end to end (needs: cd examples && npm ci && npx playwright install chromium)
 cargo run -p lest -- run hello -p path/to/project
 ```
 

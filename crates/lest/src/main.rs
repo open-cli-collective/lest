@@ -163,6 +163,21 @@ fn check_runnable(catalog: &Catalog, flow_id: &str, style: Style) -> Result<()> 
     Err(fail(exit::USAGE, format!("{flow_id} has {} validation error(s)", errors.len())))
 }
 
+/// Browser steps run through the Node harness.
+fn browser_driver(
+    project: &Project,
+    roots: &StateRoots,
+    allow_origin: Option<String>,
+) -> Arc<dyn runner::BrowserDriver> {
+    let cfg = project.config.browser.clone().unwrap_or_default();
+    Arc::new(lest_core::browser::NodeBrowser {
+        node: cfg.node.unwrap_or_else(|| "node".to_string()),
+        harness_dir: roots.data_dir.join("harness"),
+        args: cfg.args,
+        allow_origin,
+    })
+}
+
 fn keyring() -> Arc<dyn Keyring> {
     Arc::new(SystemKeyring)
 }
@@ -208,8 +223,13 @@ async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
             Some((old, step.clone()))
         }
     };
-    let engine =
-        Engine { project, catalog: Arc::new(catalog), store: store.clone(), keyring: keyring(), browser: None };
+    let engine = Engine {
+        browser: Some(browser_driver(&project, &ctx.roots, None)),
+        project,
+        catalog: Arc::new(catalog),
+        store: store.clone(),
+        keyring: keyring(),
+    };
     let req = RunRequest {
         flow_id: flow_id.clone(),
         environment: a.environment.clone(),

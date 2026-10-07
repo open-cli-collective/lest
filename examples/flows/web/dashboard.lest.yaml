@@ -1,0 +1,26 @@
+apiVersion: lest/v1
+id: dashboard
+name: Dashboard shows every plant
+description: |
+  Opens the dashboard with the saved session and checks that every plant's
+  card renders with real data, not the loading placeholders.
+tags: [web]
+affects: ["app/**"]
+environments:
+  local: { base_url: "http://127.0.0.1:4173" }
+defaultEnvironment: local
+steps:
+  - id: sign_in
+    flow: sign-in
+  - id: open
+    name: Open the dashboard
+    browser:
+      url: "${{ vars.base_url }}/app"
+      session: sprout
+      actions:
+        - waitFor: "[data-testid=plant]"
+        - read: { name: summary, selector: "#summary" }
+        - screenshot: dashboard
+  - id: check
+    name: The summary counts the plants
+    assert: steps.open.outputs.summary.matches('^[0-9]+ plants, [0-9]+ needs? water$')

@@ -1,0 +1,10 @@
+name: Sprout examples
+flows: [flows]
+secrets:
+  backends:
+    - keyring: {}
+    - env: {}
+    # The sample app's demo password, so the examples run with no setup.
+    # Real projects point this at a password manager CLI.
+    - command:
+        run: test "$LEST_SECRET_NAME" = sprout_password && echo sprout-demo

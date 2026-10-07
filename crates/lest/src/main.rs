@@ -966,6 +966,56 @@ fn cmd_config(ctx: &Ctx, command: ConfigCommand) -> Result<u8> {
     }
 }
 
+/// Opens the UI as a standalone window: a Chromium-family browser in app
+/// mode, with its own profile so it is a separate window and app.
+fn open_app_window(url: &str, profile: &Path) -> bool {
+    let app = format!("--app={url}");
+    let data = format!("--user-data-dir={}", profile.display());
+    if cfg!(target_os = "macos") {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        for name in ["Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser"] {
+            let bundle = format!("{name}.app");
+            if Path::new("/Applications").join(&bundle).is_dir() || home.join("Applications").join(&bundle).is_dir() {
+                return std::process::Command::new("open")
+                    .args(["-na", name, "--args", &app, &data])
+                    .status()
+                    .is_ok_and(|s| s.success());
+            }
+        }
+        false
+    } else {
+        let Some(browser) = ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]
+            .into_iter()
+            .find(|b| which::which(b).is_ok())
+        else {
+            return false;
+        };
+        let mut cmd = std::process::Command::new(browser);
+        cmd.args([&app, &data]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        // Its own process group, so Ctrl-C in this terminal does not close
+        // the window (or other projects' windows sharing the profile).
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        let Ok(mut child) = cmd.spawn() else { return false };
+        // A browser that cannot start (no display, a locked profile) exits
+        // at once with an error; one that hands the window to a running
+        // browser exits at once with success.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+        while std::time::Instant::now() < deadline {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                Err(_) => return false,
+            }
+        }
+        std::thread::spawn(move || child.wait());
+        true
+    }
+}
+
 async fn cmd_ui(ctx: &Ctx, a: UiArgs) -> Result<u8> {
     let roots = ctx.roots.clone();
     let project = ctx.project.clone();
@@ -981,7 +1031,14 @@ async fn cmd_ui(ctx: &Ctx, a: UiArgs) -> Result<u8> {
     let url = server.url();
     eprintln!("lest ui: {url}");
     eprintln!("project: {}", ctx.project.root.display());
-    if !a.no_browser {
+    if a.app && open_app_window(&url, &ctx.roots.data_dir.join("ui-window")) {
+        eprintln!("opened in its own window");
+    } else if !a.no_browser {
+        if a.app {
+            eprintln!(
+                "could not open an app window (no Chromium-family browser, or it failed to start); opening a browser tab"
+            );
+        }
         let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
         if std::process::Command::new(opener).arg(&url).status().is_err() {
             eprintln!("open the address above in a browser");

@@ -167,6 +167,12 @@ async function capture() {
     await apage.click('[aria-label="AI provider"] [role="radio"]:has-text("Custom command")');
     await apage.fill("#ai-command", aiCommand);
     await apage.waitForSelector('.settings-status:has-text("Using")');
+    // A custom command has no agent of its own; Open in agent needs one.
+    await apage.fill("#ai-agent", "claude {prompt}");
+    for (let i = 0; (await api("/settings")).ai.agent !== "claude {prompt}"; i++) {
+      if (i > 50) throw new Error("the agent command was not saved");
+      await apage.waitForTimeout(200);
+    }
     await apage.waitForSelector('.settings-status .saved:has-text("Saved")');
     await shot(apage, "settings-ai.png");
 

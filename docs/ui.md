@@ -4,6 +4,12 @@
 same flows, runs the same runner and shows the same reports as the CLI. The
 source is in `ui/` (see [ui/README.md](../ui/README.md) for development).
 
+`lest ui` opens the address in your default browser; `--no-browser` only
+prints it. `lest ui --app` opens it in its own window instead: a
+Chromium-family browser (Chrome, Chromium, Edge or Brave) in app mode, with a
+profile of its own under the data directory. Without one, it falls back to a
+browser tab.
+
 The left rail holds Flows, Runs, Demos and Settings, and shows the project
 name. It collapses to icons; the choice is remembered in the browser.
 

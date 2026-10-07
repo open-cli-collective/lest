@@ -1,0 +1,37 @@
+[package]
+name = "lest-core"
+description = "Flow format, runner and reports for Lest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+schemars.workspace = true
+cel.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+humantime.workspace = true
+regex.workspace = true
+sha2.workspace = true
+hex.workspace = true
+time.workspace = true
+dirs.workspace = true
+globset.workspace = true
+walkdir.workspace = true
+which.workspace = true
+reqwest.workspace = true
+rand.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true

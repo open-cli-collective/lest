@@ -1,0 +1,27 @@
+[package]
+name = "lest"
+description = "Run end-to-end flows against real systems and record demos from them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "lest"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+lest-core.workspace = true
+regex.workspace = true
+which.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

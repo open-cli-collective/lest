@@ -4,7 +4,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../api";
 import type { RunEvent, RunReport } from "../types";
-import { reduceRuns, type RunsAction, type RunsState, type RunState } from "./runState";
+import { isLive, reduceRuns, type RunsAction, type RunsState, type RunState } from "./runState";
 
 type Listener = () => void;
 
@@ -65,11 +65,19 @@ let source: EventSource | null = null;
 export function connect(): void {
   if (source || typeof EventSource === "undefined") return;
   source = new EventSource("/api/events");
+  let dropped = false;
   source.onopen = () => {
     connection = "open";
     emit();
+    // Events sent while the stream was down are gone: refetch every run
+    // still shown as live.
+    if (dropped) {
+      dropped = false;
+      for (const run of Object.values(state.runs)) if (isLive(run)) void hydrate(run.runId);
+    }
   };
   source.onerror = () => {
+    dropped = true;
     connection = source?.readyState === EventSource.CLOSED ? "closed" : "connecting";
     emit();
   };

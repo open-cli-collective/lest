@@ -303,9 +303,14 @@ async fn start_run(State(s): State<Arc<AppState>>, Json(req): Json<StartRun>) ->
         })
     };
     let id = run_id.clone();
+    let s2 = s.clone();
     tokio::spawn(async move {
-        runner::execute_with_id(&engine, request, tx, cancel, id).await;
+        runner::execute_with_id(&engine, request, tx, cancel, id.clone()).await;
         let _ = forward.await;
+        // However the run ended, it is no longer live.
+        if let Some(live) = s2.runs.lock().expect("lock").get_mut(&id) {
+            live.done = true;
+        }
     });
     Ok(Json(json!({"runId": run_id})))
 }
@@ -417,10 +422,25 @@ async fn run_file(
     }
     let mime = lest_core::runner::mime_for_name(&path);
     let resp = ServeFile::new_with_mime(&file, &mime.parse().expect("mime")).try_call(req).await;
-    match resp {
-        Ok(r) => Ok(r.map(axum::body::Body::new)),
-        Err(e) => Err(ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    let mut resp = match resp {
+        Ok(r) => r.map(axum::body::Body::new),
+        Err(e) => return Err(ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    };
+    // Run files are untrusted content from the system under test: they run
+    // in a sandbox with no scripts and no access to the UI's origin, and
+    // anything that could execute downloads instead of rendering.
+    let h = resp.headers_mut();
+    h.insert(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        axum::http::HeaderValue::from_static(
+            "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+        ),
+    );
+    let ext = std::path::Path::new(&path).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if matches!(ext.as_str(), "html" | "htm" | "svg" | "js" | "mjs" | "xhtml" | "xml") {
+        h.insert(axum::http::header::CONTENT_DISPOSITION, axum::http::HeaderValue::from_static("attachment"));
     }
+    Ok(resp)
 }
 
 #[derive(Deserialize)]
@@ -453,12 +473,24 @@ async fn reveal(
 /// prompt for input or open a browser.
 async fn tool_login(State(s): State<Arc<AppState>>, Path(name): Path<String>) -> AppResult<Json<Json_>> {
     let project = s.project.read().expect("lock").clone();
-    let login = project
-        .config
-        .tools
-        .get(&name)
+    let profile = project.config.tools.get(&name);
+    let login = profile
         .and_then(|p| p.login.clone())
         .ok_or_else(|| not_found(format!("tool {name} has no login command in lest.yaml")))?;
+    // The profile's pins (a profile name, an environment), as the CLI
+    // applies them; pins that need a run's vars are left out.
+    let mut scope = lest_core::expr::Scope::new();
+    scope.set("vars", json!({}));
+    scope.set("run", json!({"environment": null}));
+    let mut prefix = String::new();
+    for (k, t) in profile.map(|p| p.env.clone()).unwrap_or_default() {
+        if let Ok(v) = lest_core::expr::interpolate(&t, &scope)
+            && !v.is_empty()
+        {
+            prefix.push_str(&format!("{k}='{}' ", v.replace('\'', "'\\''")));
+        }
+    }
+    let login = format!("{prefix}{login}");
     match crate::terminal::open(&login, &project.root) {
         Ok(how) => Ok(Json(json!({"launched": true, "how": how, "command": login}))),
         Err(e) => Ok(Json(json!({"launched": false, "error": e, "command": login}))),

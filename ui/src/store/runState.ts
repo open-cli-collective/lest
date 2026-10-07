@@ -78,6 +78,9 @@ export interface RunState {
   lastSeq: number;
   /** An event arrived after a missing one; the store refetches the run. */
   gap: boolean;
+  /** Events that arrived during a gap, applied after the refetched
+   * snapshot so nothing newer than the snapshot is lost. */
+  pending: RunEvent[];
   startedAtMs: number | null;
   steps: Record<string, StepState>;
   roots: string[];
@@ -99,6 +102,7 @@ export function emptyRun(runId: string): RunState {
     environment: null,
     lastSeq: -1,
     gap: false,
+    pending: [],
     startedAtMs: null,
     steps: {},
     roots: [],
@@ -188,7 +192,10 @@ function applyStepReport(run: RunState, r: StepReport, atMs: number | null, over
 export function applyEvent(prev: RunState, ev: RunEvent): RunState {
   if (ev.runId !== prev.runId) return prev;
   if (ev.seq <= prev.lastSeq) return prev;
-  if (ev.seq !== prev.lastSeq + 1) return prev.gap ? prev : { ...prev, gap: true };
+  if (ev.seq !== prev.lastSeq + 1) {
+    const pending = prev.pending.length < 5000 ? [...prev.pending, ev] : prev.pending;
+    return { ...prev, gap: true, pending };
+  }
   const run: RunState = { ...prev, lastSeq: ev.seq, gap: false };
   switch (ev.kind) {
     case "runStarted": {
@@ -410,7 +417,10 @@ export function reduceRuns(state: RunsState, action: RunsAction): RunsState {
     case "events": {
       const prev = state.runs[action.runId] ?? emptyRun(action.runId);
       const mine = action.events.filter((e) => e.runId === action.runId);
-      const next = applyEvents({ ...prev, gap: false }, mine);
+      const held = prev.pending;
+      const snap = applyEvents({ ...prev, gap: false, pending: [] }, mine);
+      // Then whatever arrived during the gap and is newer than the snapshot.
+      const next = applyEvents(snap, held.filter((e) => e.seq > snap.lastSeq));
       return { runs: { ...state.runs, [action.runId]: next } };
     }
     case "report": {

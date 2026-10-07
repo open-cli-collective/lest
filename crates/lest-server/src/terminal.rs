@@ -49,11 +49,8 @@ fn which_ok(bin: &str) -> bool {
 /// Shows a file or folder in the system file manager.
 pub fn reveal(path: &Path) -> Result<(), String> {
     let status = if cfg!(target_os = "macos") {
-        if path.is_dir() {
-            Command::new("open").arg(path).status()
-        } else {
-            Command::new("open").arg("-R").arg(path).status()
-        }
+        // -R reveals; plain `open` would launch an .app directory.
+        Command::new("open").arg("-R").arg(path).status()
     } else if cfg!(windows) {
         Command::new("explorer").arg(format!("/select,{}", path.display())).status()
     } else {

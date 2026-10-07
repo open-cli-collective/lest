@@ -53,7 +53,9 @@ export type Inline =
   | { type: "strong" | "em"; children: Inline[] }
   | { type: "link"; href: string; children: Inline[] };
 
-const SAFE_HREF = /^(https?:|mailto:|\/|#)/i;
+// Absolute web and mail links, same-site paths and anchors; never a
+// protocol-relative `//host` link.
+const SAFE_HREF = /^(https?:|mailto:|\/(?!\/)|#)/i;
 
 export function parseInline(src: string): Inline[] {
   const out: Inline[] = [];

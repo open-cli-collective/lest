@@ -247,3 +247,25 @@ describe("reports", () => {
     expect(merged.steps.page_login!.output.length).toBe(live.steps.page_login!.output.length);
   });
 });
+
+describe("hydration during a gap", () => {
+  it("keeps events newer than the snapshot", () => {
+    const ev = (seq: number, body: Record<string, unknown>) => ({ runId: "r", seq, atMs: seq, ...body }) as never;
+    const started = ev(0, {
+      kind: "runStarted",
+      flowId: "f",
+      flowName: "F",
+      environment: null,
+      runDir: "/x",
+      steps: [{ id: "a", name: "A", kind: "run" }],
+      finally: [],
+      tools: [],
+    });
+    // The stream delivers seq 2 before the snapshot (seq 0..1) arrives.
+    let s = reduceRuns({ runs: {} }, { type: "event", event: ev(2, { kind: "stepStarted", stepId: "a", attempt: 1 }) });
+    expect(s.runs.r!.gap).toBe(true);
+    s = reduceRuns(s, { type: "events", runId: "r", events: [started, ev(1, { kind: "demoProgress", message: "x" })] });
+    expect(s.runs.r!.lastSeq).toBe(2);
+    expect(s.runs.r!.steps.a!.status).toBe("running");
+  });
+});

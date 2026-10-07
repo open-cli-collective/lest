@@ -1,10 +1,13 @@
 //! The local server behind Lest's UI: a JSON API, a server-sent event stream
 //! of run events, run files with range requests, and the embedded UI.
 //!
-//! It binds loopback only. Every request must carry the per-launch token,
-//! either as the `lest_token` cookie (set when the UI is opened with
-//! `?token=`) or as a bearer token, and a loopback `Host` header, which
-//! blocks DNS-rebinding pages from reaching it.
+//! It binds loopback only. Every request needs a loopback `Host` header,
+//! which blocks DNS-rebinding pages. API requests need the per-launch token,
+//! either as the `lest_token_<port>` cookie (set when the UI is opened with
+//! `?token=`) or as a bearer token; the app shell and its assets load
+//! without it and carry no data. Requests that change something and arrive
+//! with the cookie must come from the UI's own origin, because a page on
+//! another local port counts as same-site and would send the cookie too.
 
 mod api;
 mod terminal;
@@ -60,6 +63,9 @@ pub(crate) struct LiveRun {
 
 pub(crate) struct AppState {
     pub project: RwLock<Project>,
+    /// The cookie's name carries the port, so two `lest ui` processes do
+    /// not overwrite each other's token.
+    pub cookie: String,
     pub store: Store,
     pub keyring: Arc<dyn Keyring>,
     pub browser: Arc<dyn BrowserDriver>,
@@ -100,7 +106,9 @@ pub async fn bind(opts: Options) -> anyhow::Result<Server> {
         project: RwLock::new(opts.project),
         store: Store::new(opts.roots),
         keyring: opts.keyring,
-        browser: (opts.browser)(Some(origin)),
+        cookie: format!("lest_token_{}", addr.port()),
+        // The live view may run from either loopback name.
+        browser: (opts.browser)(Some(format!("{origin},http://localhost:{}", addr.port()))),
         token: opts.token.clone(),
         runs: Mutex::new(HashMap::new()),
         events,
@@ -122,11 +130,25 @@ fn is_loopback_host(headers: &HeaderMap) -> bool {
     matches!(name, "127.0.0.1" | "localhost" | "[::1]")
 }
 
-fn cookie_token(headers: &HeaderMap) -> Option<String> {
+fn cookie_token(headers: &HeaderMap, name: &str) -> Option<String> {
     headers.get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()).flat_map(|v| v.split(';')).find_map(|c| {
         let (k, v) = c.trim().split_once('=')?;
-        (k == "lest_token").then(|| v.to_string())
+        (k == name).then(|| v.to_string())
     })
+}
+
+/// A cookie-authenticated request that changes something must come from
+/// the UI itself: its `Origin` (or `Sec-Fetch-Site`) must match.
+fn same_origin(headers: &HeaderMap) -> bool {
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok()) {
+        return origin == format!("http://{host}");
+    }
+    match headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        Some(site) => site == "same-origin",
+        // No browser headers at all: not a cross-site browser request.
+        None => true,
+    }
 }
 
 fn bearer(headers: &HeaderMap) -> Option<String> {
@@ -149,30 +171,38 @@ async fn guard(State(state): State<Arc<AppState>>, req: Request, next: Next) -> 
     {
         if same(t, &state.token) {
             let mut resp = Redirect::to(req.uri().path()).into_response();
-            let cookie = format!("lest_token={}; Path=/; HttpOnly; SameSite=Strict", state.token);
+            let cookie = format!("{}={}; Path=/; HttpOnly; SameSite=Strict", state.cookie, state.token);
             resp.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).expect("cookie"));
             return resp;
         }
         return (StatusCode::UNAUTHORIZED, "wrong token").into_response();
     }
-    let ok = cookie_token(req.headers()).or_else(|| bearer(req.headers())).is_some_and(|t| same(&t, &state.token));
+    let by_bearer = bearer(req.headers()).is_some_and(|t| same(&t, &state.token));
+    let by_cookie = cookie_token(req.headers(), &state.cookie).is_some_and(|t| same(&t, &state.token));
     let path = req.uri().path().to_string();
-    if !ok && (path.starts_with("/api/") || path == "/" || path.ends_with(".html")) {
+    if !(by_bearer || by_cookie) && (path.starts_with("/api/") || path == "/" || path.ends_with(".html")) {
         return (
             StatusCode::UNAUTHORIZED,
-            "Open Lest with the address `lest ui` printed (it carries a one-time token).",
+            "Open Lest with the address `lest ui` printed (it carries this server's token).",
         )
             .into_response();
     }
+    let changes = !matches!(*req.method(), axum::http::Method::GET | axum::http::Method::HEAD);
+    if changes && !by_bearer && !same_origin(req.headers()) {
+        return (StatusCode::FORBIDDEN, "requests that change something must come from the Lest UI").into_response();
+    }
     let mut resp = next.run(req).await;
     let h = resp.headers_mut();
-    h.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; \
-             connect-src 'self' ws://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-        ),
-    );
+    // Routes can set a stricter policy (run files do).
+    if !h.contains_key(header::CONTENT_SECURITY_POLICY) {
+        h.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; \
+                 connect-src 'self' ws://127.0.0.1:* ws://localhost:*; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+            ),
+        );
+    }
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     h.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     resp
@@ -230,7 +260,21 @@ mod tests {
     #[test]
     fn reads_the_token_cookie() {
         let mut h = HeaderMap::new();
-        h.insert(header::COOKIE, HeaderValue::from_static("a=1; lest_token=abc; b=2"));
-        assert_eq!(cookie_token(&h).as_deref(), Some("abc"));
+        h.insert(header::COOKIE, HeaderValue::from_static("a=1; lest_token_4100=abc; lest_token_4200=def"));
+        assert_eq!(cookie_token(&h, "lest_token_4200").as_deref(), Some("def"));
+    }
+
+    #[test]
+    fn changes_need_the_ui_origin() {
+        let mut h = HeaderMap::new();
+        h.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4100"));
+        assert!(same_origin(&h));
+        h.insert(header::ORIGIN, HeaderValue::from_static("http://127.0.0.1:4100"));
+        assert!(same_origin(&h));
+        h.insert(header::ORIGIN, HeaderValue::from_static("http://127.0.0.1:4200"));
+        assert!(!same_origin(&h));
+        h.remove(header::ORIGIN);
+        h.insert("sec-fetch-site", HeaderValue::from_static("same-site"));
+        assert!(!same_origin(&h));
     }
 }

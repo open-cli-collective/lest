@@ -10,8 +10,6 @@ use cel::{Context, Env, ExecutionError, Program, Value, extensions};
 use regex::Regex;
 use serde_json::{Map, Value as Json};
 
-static TEMPLATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\$\{\{\s*(.*?)\s*\}\}").expect("template regex"));
-
 /// The standard library plus the CEL string, list, math and encoder
 /// extensions (`trim`, `split`, `replace`, `join`, `math.greatest`, ...).
 static ENV: LazyLock<Arc<Env>> = LazyLock::new(|| {
@@ -177,16 +175,66 @@ pub fn stringify(v: &Json) -> String {
     }
 }
 
+/// A `${{ expr }}` occurrence: byte range of the whole template and the
+/// trimmed expression inside.
+struct Template<'a> {
+    start: usize,
+    end: usize,
+    expr: &'a str,
+}
+
+/// Finds `${{ ... }}` occurrences. The closing `}}` is the first one outside
+/// quotes and outside nested braces, so `${{ {'a': {'b': 1}} }}` and
+/// `${{ x == '}}' }}` work.
+fn templates(text: &str) -> Vec<Template<'_>> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(off) = text[i..].find("${{") {
+        let start = i + off;
+        let body = start + 3;
+        let mut j = body;
+        let mut depth = 0usize;
+        let mut quote: Option<u8> = None;
+        let mut close = None;
+        while j < bytes.len() {
+            let c = bytes[j];
+            if let Some(q) = quote {
+                if c == b'\\' {
+                    j += 2;
+                    continue;
+                }
+                if c == q {
+                    quote = None;
+                }
+            } else if c == b'\'' || c == b'"' {
+                quote = Some(c);
+            } else if c == b'{' {
+                depth += 1;
+            } else if c == b'}' {
+                if depth == 0 && bytes.get(j + 1) == Some(&b'}') {
+                    close = Some(j);
+                    break;
+                }
+                depth = depth.saturating_sub(1);
+            }
+            j += 1;
+        }
+        let Some(close) = close else { break };
+        out.push(Template { start, end: close + 2, expr: text[body..close].trim() });
+        i = close + 2;
+    }
+    out
+}
+
 /// Replaces every `${{ expr }}` in `template` with the expression's value.
 pub fn interpolate(template: &str, scope: &Scope) -> Result<String, ExprError> {
     let mut out = String::with_capacity(template.len());
     let mut last = 0;
-    for caps in TEMPLATE.captures_iter(template) {
-        let whole = caps.get(0).expect("match");
-        out.push_str(&template[last..whole.start()]);
-        let value = eval(caps.get(1).expect("group").as_str(), scope)?;
-        out.push_str(&stringify(&value));
-        last = whole.end();
+    for t in templates(template) {
+        out.push_str(&template[last..t.start]);
+        out.push_str(&stringify(&eval(t.expr, scope)?));
+        last = t.end;
     }
     out.push_str(&template[last..]);
     Ok(out)
@@ -197,12 +245,10 @@ pub fn interpolate_json(value: &Json, scope: &Scope) -> Result<Json, ExprError> 
     Ok(match value {
         Json::String(s) => {
             // A field that is exactly one template keeps the value's type.
-            if let Some(caps) = TEMPLATE.captures(s)
-                && caps.get(0).map(|m| m.as_str().len()) == Some(s.trim().len())
-            {
-                eval(caps.get(1).expect("group").as_str(), scope)?
-            } else {
-                Json::String(interpolate(s, scope)?)
+            let found = templates(s);
+            match found.as_slice() {
+                [t] if s[..t.start].trim().is_empty() && s[t.end..].trim().is_empty() => eval(t.expr, scope)?,
+                _ => Json::String(interpolate(s, scope)?),
             }
         }
         Json::Array(items) => Json::Array(items.iter().map(|v| interpolate_json(v, scope)).collect::<Result<_, _>>()?),
@@ -215,11 +261,11 @@ pub fn interpolate_json(value: &Json, scope: &Scope) -> Result<Json, ExprError> 
 
 /// The expressions inside `${{ }}` in a string.
 pub fn template_exprs(template: &str) -> Vec<&str> {
-    TEMPLATE.captures_iter(template).filter_map(|c| c.get(1).map(|m| m.as_str())).collect()
+    templates(template).into_iter().map(|t| t.expr).collect()
 }
 
 pub fn has_template(text: &str) -> bool {
-    TEMPLATE.is_match(text)
+    text.contains("${{")
 }
 
 /// A dotted path an expression reads, up to four segments
@@ -332,7 +378,9 @@ mod tests {
     fn capture_takes_first_group_and_errors_on_no_match() {
         let s = Scope::new().with("self", json!({"stdout": "created id=abc-9\n"}));
         assert_eq!(eval("self.stdout.capture('id=([a-z0-9-]+)')", &s).unwrap(), json!("abc-9"));
+        assert_eq!(eval(r"self.stdout.capture(r'id=([\w-]+)')", &s).unwrap(), json!("abc-9"));
         assert!(eval("self.stdout.capture('missing=(\\\\w+)')", &s).is_err());
+        assert_eq!(eval(r"self.stdout.capture(r'id=([\w-]+)')", &s).unwrap(), json!("abc-9"));
     }
 
     #[test]
@@ -360,6 +408,13 @@ mod tests {
         let refs = references("steps.sign_in.outputs.user_id != '' && vars.items.all(x, x > 0)").unwrap();
         let refs: Vec<String> = refs.into_iter().map(|r| r.join(".")).collect();
         assert_eq!(refs, vec!["steps.sign_in.outputs.user_id", "vars.items"]);
+    }
+
+    #[test]
+    fn templates_allow_nested_braces_and_quoted_closers() {
+        let s = Scope::new();
+        assert_eq!(interpolate("${{ {'a': {'b': 1}}.a.b }}!", &s).unwrap(), "1!");
+        assert_eq!(interpolate("${{ 'x}}y' }}", &s).unwrap(), "x}}y");
     }
 
     #[test]

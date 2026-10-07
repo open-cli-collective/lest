@@ -127,7 +127,16 @@ async fn run(
     let (program, args) = process::shell_command(step.shell.as_deref(), script);
     let mut sink = LineSink::new(&runner.ctx, step_id);
     let res = process::run(
-        ProcessSpec { program, args, cwd, env, env_remove: vec![], stdin: None, timeout, cap: process::DEFAULT_CAP },
+        ProcessSpec {
+            program,
+            args,
+            cwd,
+            env,
+            env_remove: runner.ctx.env_remove.clone(),
+            stdin: None,
+            timeout,
+            cap: process::DEFAULT_CAP,
+        },
         cancel.clone(),
         |stream, line| sink.line(stream, line),
     )
@@ -225,7 +234,20 @@ async fn http(
         .iter()
         .map(|(k, v)| (k.as_str().to_lowercase(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
         .collect();
-    let text = resp.text().await.unwrap_or_default();
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            return AttemptOutcome {
+                errored: true,
+                error: Some(format!("reading the response body: {}", root_cause(&e))),
+                resolved: Some(resolved),
+                http_status: Some(status),
+                headers,
+                duration_ms: started.elapsed().as_millis() as u64,
+                ..Default::default()
+            };
+        }
+    };
     let text = if text.len() > process::DEFAULT_CAP {
         let mut cut = process::DEFAULT_CAP;
         while !text.is_char_boundary(cut) {

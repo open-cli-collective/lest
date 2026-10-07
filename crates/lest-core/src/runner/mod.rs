@@ -132,6 +132,9 @@ pub struct RunCtx {
     pub tool_env: Vec<(String, String)>,
     pub browser: BrowserOptions,
     pub sessions_dir: PathBuf,
+    /// Variables removed from every child's environment (secret values the
+    /// env backends read).
+    pub env_remove: Vec<String>,
     cleanups: Mutex<Vec<PendingCleanup>>,
     warnings: Mutex<Vec<String>>,
 }
@@ -455,10 +458,20 @@ pub async fn execute_with_id(
     for f in &flows {
         for t in &f.flow.tools {
             match needs.iter_mut().find(|n| n.name == t.name()) {
+                // Several flows may need the same tool: keep the strictest.
                 Some(n) => {
-                    if n.min_version.is_none() {
-                        n.min_version = t.min_version().map(str::to_string);
+                    if let Some(min) = t.min_version()
+                        && n.min_version
+                            .as_deref()
+                            .is_none_or(|cur| tools::compare_versions(min, cur) == Some(std::cmp::Ordering::Greater))
+                    {
+                        n.min_version = Some(min.to_string());
                     }
+                    n.auth = match (n.auth, t.auth()) {
+                        (Some(false), Some(false)) => Some(false),
+                        (None, None) => None,
+                        _ => Some(true),
+                    };
                 }
                 None => needs.push(Need {
                     name: t.name().to_string(),
@@ -547,9 +560,10 @@ pub async fn execute_with_id(
             }
         }
     }
+    let env_remove = crate::secrets::secret_env_names(&engine.project.secrets_config());
     for need in &needs {
         let profile = engine.project.config.tools.get(&need.name);
-        let mut checked = tools::check(need, profile, &engine.project.root, &tool_env, &cancel.main).await;
+        let mut checked = tools::check(need, profile, &engine.project.root, &tool_env, &env_remove, &cancel.main).await;
         if checked.report.status == crate::report::ToolStatus::SignedOut
             && req.interactive
             && let Some(login) = &checked.login
@@ -563,7 +577,7 @@ pub async fn execute_with_id(
                 .status()
                 .await;
             if status.is_ok_and(|s| s.success()) {
-                checked = tools::check(need, profile, &engine.project.root, &tool_env, &cancel.main).await;
+                checked = tools::check(need, profile, &engine.project.root, &tool_env, &env_remove, &cancel.main).await;
             }
         }
         emitter.emit(EventBody::Tool { tool: checked.report.clone() });
@@ -571,7 +585,10 @@ pub async fn execute_with_id(
         let message = checked.report.message.clone();
         report.tools.push(checked.report);
         match status {
-            crate::report::ToolStatus::Ready | crate::report::ToolStatus::Unknown => {}
+            crate::report::ToolStatus::Ready => {}
+            crate::report::ToolStatus::Unknown => {
+                report.warnings.push(message.clone().unwrap_or_else(|| format!("{}: version unknown", need.name)));
+            }
             _ => {
                 if status == crate::report::ToolStatus::SignedOut
                     && let Some(login) = checked.login
@@ -599,8 +616,9 @@ pub async fn execute_with_id(
         tool_env,
         browser: req.browser.clone(),
         sessions_dir: engine.store.roots().sessions_dir(),
+        env_remove,
         cleanups: Mutex::new(Vec::new()),
-        warnings: Mutex::new(Vec::new()),
+        warnings: Mutex::new(report.warnings.clone()),
     });
 
     let frame = Frame { flow: lf, prefix: String::new(), inputs, vars, steps: Mutex::new(serde_json::Map::new()) };
@@ -609,15 +627,38 @@ pub async fn execute_with_id(
     let mut resume_index = 0;
     let mut seeded = Vec::new();
     if let Some((old, from)) = &req.resume {
+        let mismatch = if old.flow_id != flow.id {
+            Some(format!("run {} is a run of {}, not {}", old.run_id, old.flow_id, flow.id))
+        } else if old.environment != environment {
+            Some(format!(
+                "run {} used environment {}; resume with the same environment",
+                old.run_id,
+                old.environment.as_deref().unwrap_or("(none)")
+            ))
+        } else if old.inputs != report.inputs {
+            Some(format!("run {} used different inputs; resume with the same inputs", old.run_id))
+        } else {
+            None
+        };
+        if let Some(m) = mismatch {
+            return finish(engine, &emitter, fail(report, m), started);
+        }
         match flow.steps.iter().position(|s| &s.id == from || from.starts_with(&format!("{}/", s.id))) {
             Some(i) => {
                 resume_index = i;
                 for s in &flow.steps[..i] {
-                    if let Some(prev) = old.steps.iter().find(|r| r.id == s.id) {
-                        seed_step(&frame, prev);
-                        seeded.push(prev.clone());
-                        emitter.emit(EventBody::StepFinished { step: Box::new(prev.clone()) });
+                    let Some(prev) = old.steps.iter().find(|r| r.id == s.id) else { continue };
+                    if prev.status.is_some_and(|st| st.is_failure()) && !s.continue_on_error {
+                        let msg = format!(
+                            "step {} failed in run {}; resume from {} or earlier",
+                            prev.id, old.run_id, prev.id
+                        );
+                        return finish(engine, &emitter, fail(report, msg), started);
                     }
+                    let restored = unredact_step(prev, &ctx.secrets);
+                    seed_step(&frame, &restored);
+                    emitter.emit(EventBody::StepFinished { step: Box::new(prev.clone()) });
+                    seeded.push(prev.clone());
                 }
             }
             None => {
@@ -652,6 +693,29 @@ pub async fn execute_with_id(
     report.cleanups = runner.run_cleanups(report.result).await;
     report.warnings = ctx.warnings.lock().expect("lock").clone();
     finish(engine, &emitter, report, started)
+}
+
+/// A step from an earlier run with `[redacted:<name>]` markers replaced by
+/// the secret values, so later steps receive what the step produced.
+fn unredact_step(step: &StepReport, secrets: &BTreeMap<String, String>) -> StepReport {
+    fn unredact(v: &Json, secrets: &BTreeMap<String, String>) -> Json {
+        match v {
+            Json::String(s) => {
+                let mut out = s.clone();
+                for (name, value) in secrets {
+                    out = out.replace(&format!("[redacted:{name}]"), value);
+                }
+                Json::String(out)
+            }
+            Json::Array(a) => Json::Array(a.iter().map(|x| unredact(x, secrets)).collect()),
+            Json::Object(m) => Json::Object(m.iter().map(|(k, x)| (k.clone(), unredact(x, secrets))).collect()),
+            other => other.clone(),
+        }
+    }
+    let mut s = step.clone();
+    s.outputs = s.outputs.iter().map(|(k, v)| (k.clone(), unredact(v, secrets))).collect();
+    s.children = s.children.iter().map(|c| unredact_step(c, secrets)).collect();
+    s
 }
 
 fn seed_step(frame: &Frame, prev: &StepReport) {
@@ -771,6 +835,13 @@ impl<'e> Runner<'e> {
         cancel: &'a CancellationToken,
     ) -> BoxFuture<'a, StepReport> {
         async move {
+            // A step queued behind maxParallel when the run is cancelled
+            // never starts.
+            if cancel.is_cancelled() {
+                let r = self.skipped(frame, step, "cancelled");
+                self.ctx.emitter.emit(EventBody::StepFinished { step: Box::new(r.clone()) });
+                return r;
+            }
             if let Some(cond) = &step.when {
                 match expr::eval_bool(cond, &frame.scope(&self.ctx)) {
                     Ok(true) => {}
@@ -894,10 +965,11 @@ impl<'e> Runner<'e> {
         r.duration_ms = started.elapsed().as_millis() as u64;
         r.status = Some(if failed {
             StepStatus::Failed
-        } else if reports.iter().any(|c| c.status == Some(StepStatus::Passed)) {
-            StepStatus::Passed
-        } else {
+        } else if reports.iter().all(|c| c.status == Some(StepStatus::Skipped)) {
             StepStatus::Skipped
+        } else {
+            // Passed, possibly with continueOnError failures (warnings).
+            StepStatus::Passed
         });
         if failed {
             let n = reports.iter().filter(|c| c.status.is_some_and(|s| s.is_failure())).count();
@@ -933,7 +1005,8 @@ impl<'e> Runner<'e> {
             }
         }
         r.resolved = Some(format!("flow {target}"));
-        let (inputs, vars) = match resolve_inputs_and_vars(&callee.flow, self.ctx.environment.as_deref(), &given) {
+        let env = self.ctx.environment.as_deref().or(callee.flow.default_environment.as_deref());
+        let (inputs, vars) = match resolve_inputs_and_vars(&callee.flow, env, &given) {
             Ok(v) => v,
             Err(e) => {
                 r.status = Some(StepStatus::Errored);
@@ -1053,10 +1126,12 @@ impl<'e> Runner<'e> {
 
             let mut retry_reason = None;
             if let Some(until) = retry.and_then(|r| r.until.as_ref()) {
-                if !outcome.errored && !outcome.cancelled {
+                if !outcome.passed && !outcome.cancelled {
+                    // The attempt itself failed (exit code, expect): retry.
+                    retry_reason = Some(outcome.error.clone().unwrap_or_else(|| "attempt failed".into()));
+                } else if !outcome.cancelled {
                     match expr::eval_bool(until, &self_scope) {
                         Ok(true) => {
-                            outcome.passed = true;
                             outcome.error = None;
                         }
                         Ok(false) => {
@@ -1074,8 +1149,6 @@ impl<'e> Runner<'e> {
                             outcome.error = Some(format!("until: {e}"));
                         }
                     }
-                } else if !outcome.cancelled {
-                    retry_reason = outcome.error.clone();
                 }
             } else if !outcome.passed && !outcome.cancelled {
                 retry_reason = Some(outcome.error.clone().unwrap_or_else(|| "attempt failed".into()));
@@ -1129,12 +1202,15 @@ impl<'e> Runner<'e> {
         let pending: Vec<PendingCleanup> = std::mem::take(&mut *self.ctx.cleanups.lock().expect("lock"));
         let mut out = Vec::new();
         for c in pending.into_iter().rev() {
-            let redacted_env: BTreeMap<String, String> =
-                c.env.iter().map(|(k, v)| (k.clone(), self.ctx.redactor.redact(v))).collect();
+            let redact = |m: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+                m.iter().map(|(k, v)| (k.clone(), self.ctx.redactor.redact(v))).collect()
+            };
             let mut rep = CleanupReport {
                 step_id: c.step_id.clone(),
                 command: c.command.clone(),
-                env: redacted_env,
+                env: redact(&c.env),
+                context: redact(&c.base_vars.iter().cloned().collect()),
+                cwd: c.cwd.display().to_string(),
                 policy: c.policy,
                 status: CleanupStatus::Pending,
                 exit_code: None,
@@ -1165,7 +1241,7 @@ impl<'e> Runner<'e> {
                     args,
                     cwd: c.cwd.clone(),
                     env,
-                    env_remove: vec![],
+                    env_remove: self.ctx.env_remove.clone(),
                     stdin: None,
                     timeout: c.timeout,
                     cap: 256 * 1024,
@@ -1246,6 +1322,7 @@ impl<'a> LineSink<'a> {
             }
             return;
         }
+        let line = self.ctx.redactor.redact(&line);
         let line = if line.len() > 4000 {
             let mut cut = 4000;
             while !line.is_char_boundary(cut) {
@@ -1255,10 +1332,6 @@ impl<'a> LineSink<'a> {
         } else {
             line
         };
-        self.ctx.emitter.emit(EventBody::StepOutput {
-            step_id: self.step_id.clone(),
-            stream,
-            line: self.ctx.redactor.redact(&line),
-        });
+        self.ctx.emitter.emit(EventBody::StepOutput { step_id: self.step_id.clone(), stream, line });
     }
 }

@@ -139,9 +139,7 @@ impl Catalog {
     /// Finds a flow by id, by path (relative to `cwd` or the project root),
     /// or by a unique id prefix.
     pub fn resolve(&self, project: &Project, cwd: &Path, query: &str) -> Result<&LoadedFlow, String> {
-        if let Some(f) = self.get(query) {
-            return Ok(f);
-        }
+        // A path names one file, even when its id is also another flow's.
         for candidate in [cwd.join(query), project.root.join(query)] {
             if let Ok(canon) = std::fs::canonicalize(&candidate)
                 && let Some(f) =
@@ -149,6 +147,9 @@ impl Catalog {
             {
                 return Ok(f);
             }
+        }
+        if let Some(f) = self.get(query) {
+            return Ok(f);
         }
         let matches: Vec<&LoadedFlow> = self.flows.iter().filter(|f| f.flow.id.starts_with(query)).collect();
         match matches.as_slice() {

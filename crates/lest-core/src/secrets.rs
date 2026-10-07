@@ -115,28 +115,26 @@ impl<'a> Resolver<'a> {
         let mut tried = Vec::new();
         for backend in &self.config.backends {
             match backend {
-                SecretBackend::Keyring(_) => {
+                SecretBackend::Keyring { .. } => {
                     tried.push(format!("keyring ({KEYRING_SERVICE}/{name})"));
                     if let Some(v) = self.keyring.get(name)? {
                         return Ok((v, "keyring"));
                     }
                 }
-                SecretBackend::Env(e) => {
+                SecretBackend::Env { env: e } => {
                     let var = format!("{}{}", e.prefix.as_deref().unwrap_or("LEST_SECRET_"), name.to_uppercase());
                     tried.push(format!("${var}"));
                     if let Some(v) = (self.env)(&var) {
                         return Ok((v, "env"));
                     }
                 }
-                SecretBackend::Command(c) => {
+                SecretBackend::Command { command: c } => {
                     tried.push(format!("command `{}`", c.run));
-                    let out = std::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(&c.run)
-                        .env("LEST_SECRET_NAME", name)
-                        .stdin(Stdio::null())
-                        .output()
-                        .map_err(|e| format!("secret command: {e}"))?;
+                    let out = run_with_timeout(
+                        std::process::Command::new("sh").arg("-c").arg(&c.run).env("LEST_SECRET_NAME", name),
+                        std::time::Duration::from_secs(60),
+                    )
+                    .map_err(|e| format!("secret command for '{name}': {e}"))?;
                     if out.status.success() {
                         let v = String::from_utf8_lossy(&out.stdout).trim_end_matches(['\n', '\r']).to_string();
                         if !v.is_empty() {
@@ -165,6 +163,29 @@ impl<'a> Resolver<'a> {
     }
 }
 
+/// The environment-variable prefixes the env backends read secrets from.
+pub fn env_prefixes(config: &SecretsConfig) -> Vec<String> {
+    config
+        .backends
+        .iter()
+        .filter_map(|b| match b {
+            SecretBackend::Env { env: e } => Some(e.prefix.clone().unwrap_or_else(|| "LEST_SECRET_".to_string())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Names of variables in this process's environment that hold secrets for
+/// the env backends. They are removed from every child process, so a step
+/// sees only the secrets its flow passes through `env:`.
+pub fn secret_env_names(config: &SecretsConfig) -> Vec<String> {
+    let prefixes = env_prefixes(config);
+    std::env::vars_os()
+        .filter_map(|(k, _)| k.into_string().ok())
+        .filter(|k| prefixes.iter().any(|p| k.starts_with(p.as_str())))
+        .collect()
+}
+
 /// Replaces every known secret value with `[redacted:<name>]`.
 #[derive(Debug, Clone, Default)]
 pub struct Redactor {
@@ -174,12 +195,20 @@ pub struct Redactor {
 
 impl Redactor {
     pub fn new(secrets: &BTreeMap<String, String>) -> Self {
-        let mut values: Vec<(String, String)> = secrets
-            .iter()
+        let mut values: Vec<(String, String)> = Vec::new();
+        for (k, v) in secrets {
             // Very short values would redact ordinary text.
-            .filter(|(_, v)| v.chars().count() >= 4)
-            .map(|(k, v)| (v.clone(), k.clone()))
-            .collect();
+            if v.chars().count() >= 4 {
+                values.push((v.clone(), k.clone()));
+            }
+            // Output is streamed line by line, so each line of a multi-line
+            // secret (a key file) is redacted on its own too.
+            if v.contains('\n') {
+                for line in v.lines().map(str::trim).filter(|l| l.chars().count() >= 8) {
+                    values.push((line.to_string(), k.clone()));
+                }
+            }
+        }
         values.sort_by_key(|v| std::cmp::Reverse(v.0.len()));
         Redactor { values }
     }
@@ -210,6 +239,31 @@ impl Redactor {
     }
 }
 
+/// Runs a command, killing it after `timeout`.
+fn run_with_timeout(
+    cmd: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, String> {
+    let child =
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+    let id = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(r) => r.map_err(|e| e.to_string()),
+        Err(_) => {
+            #[cfg(unix)]
+            // SAFETY: signals the child we spawned and still own.
+            unsafe {
+                libc::kill(id as i32, libc::SIGKILL);
+            }
+            Err(format!("timed out after {}s", timeout.as_secs()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,10 +286,10 @@ mod tests {
     fn resolves_in_order_and_explains_misses() {
         let cfg = SecretsConfig {
             backends: vec![
-                SecretBackend::Env(EnvBackend::default()),
-                SecretBackend::Command(CommandBackend {
-                    run: "test \"$LEST_SECRET_NAME\" = via_cmd && echo from-command".into(),
-                }),
+                SecretBackend::Env { env: EnvBackend::default() },
+                SecretBackend::Command {
+                    command: CommandBackend { run: "test \"$LEST_SECRET_NAME\" = via_cmd && echo from-command".into() },
+                },
             ],
         };
         let kr = NoKeyring;
@@ -254,5 +308,13 @@ mod tests {
         s.insert("pin".into(), "12".into());
         let r = Redactor::new(&s);
         assert_eq!(r.redact("x secret-long y secret 12"), "x [redacted:b] y [redacted:a] 12");
+    }
+
+    #[test]
+    fn redacts_each_line_of_multiline_secrets() {
+        let mut s = BTreeMap::new();
+        s.insert("key".into(), "-----BEGIN KEY-----\nAAAABBBBCCCCDDDD\n-----END KEY-----\n".into());
+        let r = Redactor::new(&s);
+        assert_eq!(r.redact("line: AAAABBBBCCCCDDDD"), "line: [redacted:key]");
     }
 }

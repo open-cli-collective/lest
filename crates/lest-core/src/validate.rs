@@ -167,14 +167,11 @@ impl<'a> Ctx<'a> {
     /// statically.
     fn known_outputs(&self, step: &Step) -> Option<BTreeSet<String>> {
         match step.kind() {
-            StepKind::Run | StepKind::Http | StepKind::Assert | StepKind::Group => {
-                Some(step.outputs.keys().cloned().collect())
-            }
+            StepKind::Run | StepKind::Http | StepKind::Assert => Some(step.outputs.keys().cloned().collect()),
+            StepKind::Group => Some(BTreeSet::new()),
             StepKind::Flow => {
                 let callee = self.catalog.get(step.flow.as_deref()?)?;
-                let mut names: BTreeSet<String> = callee.flow.outputs.keys().cloned().collect();
-                names.extend(step.outputs.keys().cloned());
-                Some(names)
+                Some(callee.flow.outputs.keys().cloned().collect())
             }
             StepKind::Browser => {
                 let b = step.browser.as_ref()?;
@@ -394,6 +391,25 @@ fn check_step(ctx: &mut Ctx, step: &Step, at: &str, visible: &mut BTreeSet<Strin
             ctx.check_template(&format!("{at}.cleanup.env.{k}"), val, SELF_AND_SECRETS, &v);
         }
         check_duration(ctx, &format!("{at}.cleanup.timeout"), &c.timeout);
+    }
+    if matches!(kind, StepKind::Group | StepKind::Flow) {
+        let what = if kind == StepKind::Group { "groups" } else { "flow steps" };
+        if !step.env.is_empty() {
+            ctx.err(&format!("{at}.env"), format!("env does not apply to {what}; set it on the steps inside"));
+        }
+        if step.timeout.is_some() {
+            ctx.err(&format!("{at}.timeout"), format!("timeout does not apply to {what}; set it on the steps inside"));
+        }
+        if !step.outputs.is_empty() {
+            ctx.err(
+                &format!("{at}.outputs"),
+                if kind == StepKind::Group {
+                    "groups have no outputs; read the steps inside directly (steps.<child>.outputs)"
+                } else {
+                    "a flow step's outputs are the called flow's outputs; declare them there"
+                },
+            );
+        }
     }
     if kind != StepKind::Run && (step.shell.is_some() || step.cwd.is_some()) {
         ctx.err(at, "shell and cwd apply only to run steps");

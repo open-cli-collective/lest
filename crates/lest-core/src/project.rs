@@ -71,16 +71,18 @@ pub struct SecretsConfig {
     pub backends: Vec<SecretBackend>,
 }
 
+/// One backend, written as a single-key map: `keyring: {}`,
+/// `env: {prefix: ...}` or `command: {run: ...}`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(untagged, deny_unknown_fields)]
 pub enum SecretBackend {
     /// The OS keyring (`lest secrets create <name>`).
-    Keyring(KeyringBackend),
+    Keyring { keyring: KeyringBackend },
     /// Environment variables `<prefix><NAME>` (default prefix `LEST_SECRET_`).
-    Env(EnvBackend),
+    Env { env: EnvBackend },
     /// A command that prints the secret; it receives the name in
     /// `LEST_SECRET_NAME`. Use it for any password manager CLI.
-    Command(CommandBackend),
+    Command { command: CommandBackend },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -104,8 +106,8 @@ impl Default for SecretsConfig {
     fn default() -> Self {
         SecretsConfig {
             backends: vec![
-                SecretBackend::Keyring(KeyringBackend::default()),
-                SecretBackend::Env(EnvBackend::default()),
+                SecretBackend::Keyring { keyring: KeyringBackend::default() },
+                SecretBackend::Env { env: EnvBackend::default() },
             ],
         }
     }
@@ -212,4 +214,22 @@ impl Project {
 
 pub fn project_schema() -> serde_json::Value {
     serde_json::to_value(schemars::schema_for!(ProjectConfig)).expect("schema serializes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_backends_parse_as_single_key_maps() {
+        let cfg: ProjectConfig = serde_yaml_ng::from_str(
+            "secrets:\n  backends:\n    - keyring: {}\n    - env: { prefix: CI_ }\n    - command: { run: 'vault read $LEST_SECRET_NAME' }\n",
+        )
+        .unwrap();
+        let b = cfg.secrets.unwrap().backends;
+        assert!(matches!(b[0], SecretBackend::Keyring { .. }));
+        assert!(matches!(&b[1], SecretBackend::Env { env } if env.prefix.as_deref() == Some("CI_")));
+        assert!(matches!(b[2], SecretBackend::Command { .. }));
+        assert!(serde_yaml_ng::from_str::<ProjectConfig>("secrets:\n  backends:\n    - vault: {}\n").is_err());
+    }
 }

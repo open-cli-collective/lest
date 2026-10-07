@@ -220,8 +220,15 @@ pub struct Beat {
 pub struct CleanupReport {
     pub step_id: String,
     pub command: String,
-    /// Resolved values; secret values are redacted.
+    /// The cleanup's own `env`, resolved; secret values are redacted.
     pub env: BTreeMap<String, String>,
+    /// The run variables the step saw (vars, inputs, `LEST_*`), so a later
+    /// `lest cleanup` replays in the same environment.
+    #[serde(default)]
+    pub context: BTreeMap<String, String>,
+    /// Working directory.
+    #[serde(default)]
+    pub cwd: String,
     pub policy: CleanupPolicy,
     pub status: CleanupStatus,
     #[serde(skip_serializing_if = "Option::is_none")]

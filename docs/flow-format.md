@@ -114,7 +114,8 @@ Fields every step accepts:
 ```
 
 The script runs with `-e`: the first failing command fails the step. It passes
-when the exit code is 0 (unless `expect` says otherwise).
+when the exit code is 0 (unless `expect` says otherwise). When the script
+exits, anything it left running in the background is stopped.
 
 A script cannot contain `${{ }}`. Values reach a script as environment
 variables, never as text spliced into shell code:
@@ -224,7 +225,8 @@ string, list and math extensions are available (`trim`, `split`, `replace`,
 
 - `text.capture(regex)`: the first capture group of the first match (or the
   whole match). It is an error when nothing matches, so a missing value fails
-  the step instead of passing as an empty string.
+  the step instead of passing as an empty string. Write regexes as raw
+  strings, `r'id=(\d+)'`, so backslashes reach the regex.
 
 Validation checks every reference: a misspelled input, an undeclared secret,
 or a step that has not run yet at that point is an error before anything
@@ -235,7 +237,7 @@ runs.
 ```yaml
 outputs:
   id: self.json.user.id                  # stdout parsed as JSON
-  order: self.stdout.capture('order=(\w+)')
+  order: self.stdout.capture(r'order=(\w+)')   # r'' keeps backslashes
   token: self.body.token                 # http response body
   line: self.stdout.trim()
 ```
@@ -253,11 +255,12 @@ retry:
   until: self.outputs.state == 'done'
 ```
 
-Without `until`, a failed attempt is retried. With `until`, attempts repeat
-until the condition is true, and the step fails when attempts run out. An
-expression error inside `until` (a field that does not exist yet) counts as
-"not yet". The report keeps the first attempt's start time and the total
-duration.
+Without `until`, a failed attempt is retried. With `until`, an attempt
+counts only when it succeeds (exit code 0, or its `expect`) and the
+condition is true; otherwise it is retried, and the step fails when attempts
+run out. An expression error inside `until` (a field that does not exist
+yet) counts as "not yet". The report keeps the first attempt's start time
+and the total duration.
 
 To wait for a log line, poll whatever reads your logs and bound the window
 with the run's start, so a line from a previous run cannot satisfy it:
@@ -357,9 +360,12 @@ using the tool, including a person in another terminal.
 ```
 
 Cleanups are registered as steps finish and run after `finally`, last
-registered first. The resolved command and environment are stored in the
-report (secret values redacted), so `lest cleanup <run>` can replay a cleanup
-later from the report rather than from a file that may have changed.
+registered first. The resolved command, its environment (the step's
+variables plus `cleanup.env`) and its directory are stored in the report,
+with secret values redacted. `lest cleanup <run>` replays the cleanups that
+did not run or failed, from the report rather than from a file that may have
+changed, resolves redacted secrets again, and records the outcome so a second
+replay does not repeat them.
 `on-failure` keeps the state after a pass for inspection; `manual` only
 records it.
 

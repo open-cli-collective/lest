@@ -471,3 +471,100 @@ steps:
     assert_eq!(second.find_step("use").unwrap().outputs["v"], first.find_step("make").unwrap().outputs["v"]);
     assert_eq!(second.resumed_from.as_ref().unwrap().run_id, first.run_id);
 }
+
+#[tokio::test]
+async fn env_backend_secrets_do_not_leak_into_steps() {
+    // SAFETY: tests in this binary that read the environment do not race
+    // with this variable; it has a unique name.
+    unsafe { std::env::set_var("LEST_SECRET_LEAKCHECK_TOKEN", "leak-check-value") };
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: leak
+name: Leak
+steps:
+  - id: look
+    run: 'printenv LEST_SECRET_LEAKCHECK_TOKEN | rev; true'
+"#,
+    )]);
+    let (r, _) = run(&f.engine(&[]), "leak", &[]).await;
+    assert_eq!(r.result, RunResult::Passed);
+    assert!(!r.find_step("look").unwrap().stdout.contains("eulav"), "{}", r.find_step("look").unwrap().stdout);
+}
+
+#[tokio::test]
+async fn until_does_not_hide_a_failing_attempt() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: until
+name: Until
+steps:
+  - id: fails
+    run: 'echo ready; exit 3'
+    retry: { attempts: 2, delay: 10ms, until: "self.stdout.trim() == 'ready'" }
+"#,
+    )]);
+    let (r, _) = run(&f.engine(&[]), "until", &[]).await;
+    let s = r.find_step("fails").unwrap();
+    assert_eq!(s.status, Some(StepStatus::Failed), "{s:#?}");
+    assert_eq!(s.attempts, 2);
+    assert_eq!(r.result, RunResult::Failed);
+}
+
+#[tokio::test]
+async fn resume_refuses_a_failed_earlier_step_and_other_environments() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: res
+name: Res
+environments: { a: { x: 1 }, b: { x: 2 } }
+defaultEnvironment: a
+steps:
+  - { id: one, run: "exit 1" }
+  - { id: two, run: "true" }
+"#,
+    )]);
+    let engine = f.engine(&[]);
+    let (first, _) = run(&engine, "res", &[]).await;
+    let resume = |env: Option<&str>| RunRequest {
+        flow_id: "res".into(),
+        environment: env.map(str::to_string),
+        resume: Some((first.clone(), "two".into())),
+        ..Default::default()
+    };
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let r = runner::execute(&engine, resume(None), tx.clone(), RunCancel::default()).await;
+    assert_eq!(r.result, RunResult::Errored);
+    assert!(r.error.as_deref().unwrap().contains("step one failed"), "{:?}", r.error);
+    let r = runner::execute(&engine, resume(Some("b")), tx, RunCancel::default()).await;
+    assert!(r.error.as_deref().unwrap().contains("used environment a"), "{:?}", r.error);
+}
+
+#[tokio::test]
+async fn text_artifacts_are_redacted() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: art
+name: Art
+secrets: [token]
+steps:
+  - id: write
+    env: { TOKEN: "${{ secrets.token }}" }
+    run: 'echo "token=$TOKEN" > out.log; echo "token=$TOKEN" > out-2.log'
+    artifacts: [{ path: "out*.log" }]
+"#,
+    )]);
+    let engine = f.engine(&[("token", "very-secret-token")]);
+    let (r, _) = run(&engine, "art", &[]).await;
+    let arts = &r.find_step("write").unwrap().artifacts;
+    assert_eq!(arts.len(), 2);
+    let text = std::fs::read_to_string(engine.store.run_dir("art", &r.run_id).join(&arts[0].path)).unwrap();
+    assert_eq!(text.trim(), "token=[redacted:token]");
+}

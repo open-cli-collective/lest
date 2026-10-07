@@ -33,7 +33,7 @@ pub(super) fn collect(
             continue;
         }
         for src in matches {
-            out.push(store_file(&src, &dest_dir, &ctx.run_dir, spec.label.as_deref()));
+            out.push(store_file(&src, &dest_dir, &ctx.run_dir, spec.label.as_deref(), Some(&ctx.redactor)));
         }
     }
     out
@@ -61,27 +61,50 @@ fn expand(path: &Path) -> Vec<PathBuf> {
 }
 
 /// Copies a file into the run (unless it is already inside it) and
-/// describes it.
-pub(crate) fn store_file(src: &Path, dest_dir: &Path, run_dir: &Path, label: Option<&str>) -> Result<Artifact, String> {
+/// describes it. Text files are copied with secret values redacted. A name
+/// already taken in the step's directory gets a numeric suffix.
+pub fn store_file(
+    src: &Path,
+    dest_dir: &Path,
+    run_dir: &Path,
+    label: Option<&str>,
+    redactor: Option<&crate::secrets::Redactor>,
+) -> Result<Artifact, String> {
     let file_name = src.file_name().ok_or("no file name")?.to_string_lossy().into_owned();
     let inside =
         std::fs::canonicalize(src).ok().zip(std::fs::canonicalize(run_dir).ok()).is_some_and(|(s, r)| s.starts_with(r));
-    let dest = if inside {
+    let mime = mime_for(src);
+    let is_text = mime.starts_with("text/") || mime == "application/json" || mime == "application/xml";
+    let redactor = redactor.filter(|r| !r.is_empty() && is_text);
+    let dest = if inside && redactor.is_none() {
         src.to_path_buf()
     } else {
         std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
-        let dest = dest_dir.join(&file_name);
-        std::fs::copy(src, &dest).map_err(|e| format!("copy {}: {e}", src.display()))?;
+        let mut dest = dest_dir.join(&file_name);
+        if !inside || dest != src {
+            let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let ext = src.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+            let mut n = 1;
+            while dest.exists() && std::fs::canonicalize(&dest).ok() != std::fs::canonicalize(src).ok() {
+                dest = dest_dir.join(format!("{stem}-{n}{ext}"));
+                n += 1;
+            }
+        }
+        match redactor {
+            Some(r) => {
+                let text = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
+                let redacted = r.redact(&String::from_utf8_lossy(&text));
+                std::fs::write(&dest, redacted).map_err(|e| format!("write {}: {e}", dest.display()))?;
+            }
+            None => {
+                std::fs::copy(src, &dest).map_err(|e| format!("copy {}: {e}", src.display()))?;
+            }
+        }
         dest
     };
     let bytes = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
     let rel = crate::catalog::rel_path(run_dir, &dest);
-    Ok(Artifact {
-        label: label.map(str::to_string).unwrap_or(file_name),
-        path: rel,
-        mime: mime_for(&dest).to_string(),
-        bytes,
-    })
+    Ok(Artifact { label: label.map(str::to_string).unwrap_or(file_name), path: rel, mime: mime.to_string(), bytes })
 }
 
 pub fn mime_for(path: &Path) -> &'static str {

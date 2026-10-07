@@ -104,7 +104,7 @@ reject unknown keys.
   which are exported automatically. Secrets reach a script only through
   `env:`, so they never appear on a command line.
 - **Outputs** are CEL expressions over the step's result: `self.json.user.id`
-  reads stdout parsed as JSON, `self.stdout.capture('id=(\\w+)')` takes a
+  reads stdout parsed as JSON, `self.stdout.capture(r'id=(\w+)')` takes a
   regex group, `self.body.id` reads an HTTP response. No second extraction
   mini-language.
 - **Step ids** are identifiers (`[a-z][a-z0-9_]*`) so `steps.sign_in.outputs`

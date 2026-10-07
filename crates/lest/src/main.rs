@@ -182,7 +182,17 @@ async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
         catalog.load_file(&project, &candidate);
     }
     validate_catalog(&mut catalog);
-    let flow_id = catalog.resolve(&project, &ctx.cwd, &a.flow).map_err(|e| fail(exit::NOT_FOUND, e))?.flow.id.clone();
+    let flow_id = match catalog.resolve(&project, &ctx.cwd, &a.flow) {
+        Ok(f) => f.flow.id.clone(),
+        Err(e) => {
+            // A file that does not parse never makes it into the catalog;
+            // show why instead of only "no flow".
+            for d in catalog.diagnostics.iter().filter(|d| d.flow.is_none() && d.severity == Severity::Error) {
+                eprintln!("{} {d}", style.red("✗"));
+            }
+            return Err(fail(exit::NOT_FOUND, e));
+        }
+    };
     check_runnable(&catalog, &flow_id, style)?;
 
     let store = ctx.store();
@@ -493,57 +503,68 @@ fn confirm(question: &str, force: bool) -> Result<bool> {
 
 async fn cmd_cleanup(ctx: &Ctx, a: CleanupArgs, style: Style) -> Result<u8> {
     let store = ctx.store();
-    let report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
-    let pending: Vec<_> =
-        report.cleanups.iter().filter(|c| matches!(c.status, CleanupStatus::NotRun | CleanupStatus::Failed)).collect();
-    if pending.is_empty() {
+    let mut report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let left =
+        |c: &&mut lest_core::report::CleanupReport| matches!(c.status, CleanupStatus::NotRun | CleanupStatus::Failed);
+    let count = report.cleanups.iter_mut().filter(left).count();
+    if count == 0 {
         eprintln!("run {} has no cleanups left to run", report.run_id);
         return Ok(0);
     }
-    for c in &pending {
+    for c in report.cleanups.iter_mut().filter(left) {
         let env: Vec<String> = c.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
         println!("{}: {} {}", c.step_id, env.join(" "), c.command);
     }
     if a.dry_run {
         return Ok(0);
     }
-    if !confirm(&format!("Run {} cleanup command(s)?", pending.len()), a.force)? {
+    if !confirm(&format!("Run {count} cleanup command(s)?"), a.force)? {
         return Ok(exit::FAILED);
     }
     let project = Project::discover(Path::new(&report.project_dir)).unwrap_or_else(|_| ctx.project.clone());
-    let flow_dir =
+    let fallback_dir =
         project.root.join(&report.flow_path).parent().map(Path::to_path_buf).unwrap_or_else(|| project.root.clone());
     let kr = keyring();
     let resolver = Resolver::new(project.secrets_config(), kr.as_ref());
     let marker = regex_redacted();
     let mut failed = 0;
-    for c in pending {
-        // Secret values were redacted in the report; resolve them again.
-        let mut env = Vec::new();
-        for (k, v) in &c.env {
+    for c in report.cleanups.iter_mut().filter(left) {
+        // The step's variables, then the cleanup's own env. Secret values
+        // were redacted in the report; resolve them again.
+        let mut vars = Vec::new();
+        for (k, v) in c.context.iter().chain(c.env.iter()) {
             let mut value = v.clone();
             for cap in marker.captures_iter(v) {
-                let name = &cap[1];
-                let secret = resolver.resolve(name).map_err(|e| fail(exit::ERRORED, e))?.0;
+                let secret = resolver.resolve(&cap[1]).map_err(|e| fail(exit::ERRORED, e))?.0;
                 value = value.replace(&cap[0], &secret);
             }
-            env.push((k.clone(), value));
+            vars.push((k.clone(), value));
         }
-        let status = tokio::process::Command::new("sh")
+        let cwd = if Path::new(&c.cwd).is_dir() { PathBuf::from(&c.cwd) } else { fallback_dir.clone() };
+        let out = tokio::process::Command::new("sh")
             .arg("-e")
             .arg("-c")
             .arg(&c.command)
-            .envs(env)
-            .current_dir(&flow_dir)
-            .status()
+            .envs(vars)
+            .current_dir(&cwd)
+            .stdin(std::process::Stdio::null())
+            .output()
             .await?;
-        if status.success() {
+        c.exit_code = out.status.code();
+        c.output = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        if out.status.success() {
+            c.status = CleanupStatus::Passed;
+            c.error = None;
             eprintln!("{} {}", style.green("✓"), c.step_id);
         } else {
             failed += 1;
-            eprintln!("{} {} exited {}", style.red("✗"), c.step_id, status.code().unwrap_or(-1));
+            c.status = CleanupStatus::Failed;
+            c.error = Some(format!("exited {}", out.status.code().unwrap_or(-1)));
+            eprintln!("{} {} exited {}", style.red("✗"), c.step_id, out.status.code().unwrap_or(-1));
         }
     }
+    // Record what ran, so a second `lest cleanup` does not repeat it.
+    store.write(&report)?;
     Ok(if failed > 0 { exit::FAILED } else { 0 })
 }
 
@@ -656,7 +677,8 @@ async fn cmd_doctor(ctx: &Ctx, style: Style) -> Result<u8> {
     );
     for (name, profile) in &ctx.project.config.tools {
         let need = lest_core::tools::Need { name: name.clone(), min_version: None, auth: None };
-        let checked = lest_core::tools::check(&need, Some(profile), &ctx.project.root, &[], &Default::default()).await;
+        let checked =
+            lest_core::tools::check(&need, Some(profile), &ctx.project.root, &[], &[], &Default::default()).await;
         let ok = matches!(
             checked.report.status,
             lest_core::report::ToolStatus::Ready | lest_core::report::ToolStatus::Unknown

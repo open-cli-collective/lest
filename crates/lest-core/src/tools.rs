@@ -78,6 +78,7 @@ async fn sh(
     cmd: &str,
     cwd: &Path,
     env: &[(String, String)],
+    env_remove: &[String],
     timeout: Duration,
     cancel: &CancellationToken,
 ) -> process::ProcessResult {
@@ -88,7 +89,7 @@ async fn sh(
             args,
             cwd: cwd.to_path_buf(),
             env: env.to_vec(),
-            env_remove: vec![],
+            env_remove: env_remove.to_vec(),
             stdin: None,
             timeout,
             cap: 64 * 1024,
@@ -112,6 +113,7 @@ pub async fn check(
     profile: Option<&ToolProfile>,
     cwd: &Path,
     env: &[(String, String)],
+    env_remove: &[String],
     cancel: &CancellationToken,
 ) -> Checked {
     let mut report = ToolReport {
@@ -135,7 +137,7 @@ pub async fn check(
 
     let version_cmd =
         profile.and_then(|p| p.version.clone()).unwrap_or_else(|| format!("{} --version", shell_quote(&need.name)));
-    let v = sh(&version_cmd, cwd, env, Duration::from_secs(15), cancel).await;
+    let v = sh(&version_cmd, cwd, env, env_remove, Duration::from_secs(15), cancel).await;
     let text = format!("{}\n{}", v.stdout, v.stderr);
     report.version = VERSION.find(&text).map(|m| m.as_str().to_string());
     if let Some(min) = &need.min_version {
@@ -168,15 +170,15 @@ pub async fn check(
         return Checked { report, login: None };
     };
     let timeout = Duration::from_secs(30);
-    let first = sh(check_cmd, cwd, env, timeout, cancel).await;
+    let first = sh(check_cmd, cwd, env, env_remove, timeout, cancel).await;
     if first.success() {
         return Checked { report, login: None };
     }
     let mut why = first_line(&first);
     if let Some(heal) = &p.heal {
-        let healed = sh(heal, cwd, env, Duration::from_secs(120), cancel).await;
+        let healed = sh(heal, cwd, env, env_remove, Duration::from_secs(120), cancel).await;
         if healed.success() {
-            let again = sh(check_cmd, cwd, env, timeout, cancel).await;
+            let again = sh(check_cmd, cwd, env, env_remove, timeout, cancel).await;
             if again.success() {
                 report.message = Some("signed in after refresh".to_string());
                 return Checked { report, login: None };
@@ -237,13 +239,13 @@ mod tests {
             ..Default::default()
         };
         let need = Need { name: "sh".into(), min_version: Some("0.5".into()), auth: None };
-        let c = check(&need, Some(&profile), dir.path(), &[], &CancellationToken::new()).await;
+        let c = check(&need, Some(&profile), dir.path(), &[], &[], &CancellationToken::new()).await;
         assert_eq!(c.report.status, ToolStatus::Ready, "{:?}", c.report);
         assert_eq!(c.report.version.as_deref(), Some("1.0.0"));
 
         std::fs::remove_file(&marker).unwrap();
         let broken = ToolProfile { heal: Some("false".into()), ..profile };
-        let c = check(&need, Some(&broken), dir.path(), &[], &CancellationToken::new()).await;
+        let c = check(&need, Some(&broken), dir.path(), &[], &[], &CancellationToken::new()).await;
         assert_eq!(c.report.status, ToolStatus::SignedOut);
         assert_eq!(c.login.as_deref(), Some("sh-login"));
     }
@@ -251,7 +253,7 @@ mod tests {
     #[tokio::test]
     async fn missing_tool_is_reported() {
         let need = Need { name: "no-such-tool-lest".into(), min_version: None, auth: None };
-        let c = check(&need, None, Path::new("."), &[], &CancellationToken::new()).await;
+        let c = check(&need, None, Path::new("."), &[], &[], &CancellationToken::new()).await;
         assert_eq!(c.report.status, ToolStatus::Missing);
     }
 }

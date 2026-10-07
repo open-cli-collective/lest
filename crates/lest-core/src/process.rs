@@ -9,6 +9,7 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
@@ -95,8 +96,17 @@ pub async fn run(
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<(Stream, String)>();
-    let out_task = tokio::spawn(drain(child.stdout.take().expect("stdout"), Stream::Stdout, spec.cap, tx.clone()));
-    let err_task = tokio::spawn(drain(child.stderr.take().expect("stderr"), Stream::Stderr, spec.cap, tx));
+    let out_buf = Arc::new(Mutex::new(Captured::default()));
+    let err_buf = Arc::new(Mutex::new(Captured::default()));
+    let out_task = tokio::spawn(drain(
+        child.stdout.take().expect("stdout"),
+        Stream::Stdout,
+        spec.cap,
+        out_buf.clone(),
+        tx.clone(),
+    ));
+    let err_task =
+        tokio::spawn(drain(child.stderr.take().expect("stderr"), Stream::Stderr, spec.cap, err_buf.clone(), tx));
 
     let mut on_line = on_line;
     let mut timed_out = false;
@@ -120,14 +130,19 @@ pub async fn run(
             }
         }
     };
-    // Readers finish once every holder of the pipes has exited; bound the
-    // wait in case something outside the group still holds one.
+    // A step does not outlive itself: anything it left running in its
+    // process group (a background `&` job) is stopped, which also closes the
+    // pipes so the readers finish. Long-running processes belong in
+    // `services`.
+    kill_group(pid, &mut child).await;
     let grace = Duration::from_secs(2);
-    let stdout = tokio::time::timeout(grace, out_task).await.ok().and_then(Result::ok).unwrap_or_default();
-    let stderr = tokio::time::timeout(grace, err_task).await.ok().and_then(Result::ok).unwrap_or_default();
+    let _ = tokio::time::timeout(grace, out_task).await;
+    let _ = tokio::time::timeout(grace, err_task).await;
     while let Ok((stream, line)) = rx.try_recv() {
         on_line(stream, line);
     }
+    let stdout = out_buf.lock().expect("lock").text(spec.cap);
+    let stderr = err_buf.lock().expect("lock").text(spec.cap);
     ProcessResult {
         exit_code: status.and_then(|s| s.code()),
         stdout,
@@ -139,40 +154,65 @@ pub async fn run(
     }
 }
 
+/// Output kept so far; shared so it survives a reader that never finishes.
+#[derive(Default)]
+struct Captured {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+impl Captured {
+    fn push(&mut self, chunk: &[u8], cap: usize) {
+        let room = cap.saturating_sub(self.bytes.len());
+        self.bytes.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        if chunk.len() > room {
+            self.truncated = true;
+        }
+    }
+    fn text(&self, cap: usize) -> String {
+        let mut text = String::from_utf8_lossy(&self.bytes).into_owned();
+        if self.truncated {
+            text.push_str(&format!("\n[output truncated at {cap} bytes]\n"));
+        }
+        text
+    }
+}
+
+/// Lines longer than this are streamed in pieces, so a newline-free stream
+/// cannot grow memory without bound.
+const MAX_LINE: usize = 64 * 1024;
+
 async fn drain(
     reader: impl AsyncRead + Unpin,
     stream: Stream,
     cap: usize,
+    kept: Arc<Mutex<Captured>>,
     tx: mpsc::UnboundedSender<(Stream, String)>,
-) -> String {
+) {
     let mut reader = BufReader::new(reader);
-    let mut kept: Vec<u8> = Vec::new();
-    let mut truncated = false;
-    let mut buf = Vec::new();
+    let mut line: Vec<u8> = Vec::new();
+    let send = |line: &mut Vec<u8>| {
+        let text = String::from_utf8_lossy(line);
+        let _ = tx.send((stream, text.trim_end_matches(['\n', '\r']).to_string()));
+        line.clear();
+    };
     loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                if kept.len() < cap {
-                    let room = cap - kept.len();
-                    kept.extend_from_slice(&buf[..buf.len().min(room)]);
-                    if buf.len() > room {
-                        truncated = true;
-                    }
-                } else {
-                    truncated = true;
-                }
-                let line = String::from_utf8_lossy(&buf);
-                let _ = tx.send((stream, line.trim_end_matches(['\n', '\r']).to_string()));
+        let chunk = match reader.fill_buf().await {
+            Ok([]) | Err(_) => break,
+            Ok(c) => c.to_vec(),
+        };
+        reader.consume(chunk.len());
+        kept.lock().expect("lock").push(&chunk, cap);
+        for piece in chunk.split_inclusive(|b| *b == b'\n') {
+            line.extend_from_slice(piece);
+            if piece.ends_with(b"\n") || line.len() >= MAX_LINE {
+                send(&mut line);
             }
         }
     }
-    let mut text = String::from_utf8_lossy(&kept).into_owned();
-    if truncated {
-        text.push_str(&format!("\n[output truncated at {} bytes]\n", cap));
+    if !line.is_empty() {
+        send(&mut line);
     }
-    text
 }
 
 async fn kill_group(pid: Option<u32>, child: &mut tokio::process::Child) {
@@ -279,6 +319,29 @@ mod tests {
         s.args.clear();
         let r = run(s, CancellationToken::new(), |_, _| {}).await;
         assert!(r.spawn_error.unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn background_jobs_are_stopped_and_output_kept() {
+        let started = Instant::now();
+        let r = run(spec("echo id=42; sleep 30 &", Duration::from_secs(10)), CancellationToken::new(), |_, _| {}).await;
+        assert!(r.success(), "{r:?}");
+        assert_eq!(r.stdout, "id=42\n");
+        assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
+    }
+
+    #[tokio::test]
+    async fn long_lines_are_streamed_in_pieces() {
+        let mut longest = 0;
+        let r = run(
+            spec("head -c 200000 /dev/zero | tr '\\0' x", Duration::from_secs(10)),
+            CancellationToken::new(),
+            |_, l| longest = longest.max(l.len()),
+        )
+        .await;
+        assert!(r.success());
+        assert_eq!(r.stdout.len(), 200_000);
+        assert!(longest <= MAX_LINE);
     }
 
     #[tokio::test]

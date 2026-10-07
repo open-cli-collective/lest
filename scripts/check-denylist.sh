@@ -16,9 +16,10 @@ status=0
 if [ "${1:-}" = "--stdin" ]; then
   if grep -inE -f "$patterns" -; then status=1; fi
 else
-  # Binary files are scanned too (images can carry text in metadata).
+  # Text files only: short patterns match random bytes in compressed
+  # images. Review images by eye before publishing them.
   files="$(git ls-files)"
-  if [ -n "$files" ] && git ls-files -z | xargs -0 grep -inE -f "$patterns" --; then status=1; fi
+  if [ -n "$files" ] && git ls-files -z | xargs -0 grep -inIE -f "$patterns" --; then status=1; fi
   if git ls-files | grep -iE -f "$patterns"; then status=1; fi
 fi
 if [ "$status" -ne 0 ]; then

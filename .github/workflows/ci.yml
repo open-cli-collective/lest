@@ -49,6 +49,9 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
           node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: cd ui && npm ci
       - run: make lint
 
   test:
@@ -60,6 +63,12 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: cd ui && npm ci
       - run: make test
 
   build:
@@ -71,6 +80,12 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: cd ui && npm ci
       - run: make build
       - name: Smoke test the binary
         run: |
@@ -94,10 +109,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: examples/package-lock.json
-      - name: Install Chromium for Playwright
+          cache-dependency-path: |
+            examples/package-lock.json
+            ui/package-lock.json
+      - name: Install Chromium for Playwright, and ffmpeg for demo cuts
         working-directory: examples
         run: |
           npm ci
           npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: cd ui && npm ci
       - run: make e2e

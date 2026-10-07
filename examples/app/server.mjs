@@ -12,6 +12,8 @@ const PASSWORD = process.env.SPROUT_PASSWORD || "sprout-demo";
 const USER = { id: "u-1", email: "demo@example.com", name: "Robin" };
 // Slow the dashboard's data a little, the way a real backend would be.
 const DATA_DELAY_MS = Number(process.env.SPROUT_DATA_DELAY_MS ?? 700);
+// The first forecast after connecting takes a while to arrive.
+const FORECAST_DELAY_MS = Number(process.env.SPROUT_FORECAST_DELAY_MS ?? 5000);
 
 const sessions = new Map(); // token -> { weather: bool }
 const plants = new Map();
@@ -135,8 +137,10 @@ const appPage = () =>
         if (me.weather) {
           document.getElementById("weather-status").textContent = "Connected";
           document.getElementById("weather-status").className = "pill ok";
-          document.getElementById("weather-text").textContent = "Rain expected Thursday: skip watering the balcony plants.";
           document.getElementById("connect").style.display = "none";
+          document.getElementById("weather-text").textContent = "Fetching the forecast…";
+          const f = await fetch("/api/forecast").then(r => r.json());
+          document.getElementById("weather-text").textContent = f.summary;
         }
       }
       document.getElementById("connect").addEventListener("click", () => {
@@ -205,6 +209,14 @@ const server = createServer(async (req, res) => {
   if (!s) return json(res, 401, { error: "sign in first" });
 
   if (path === "/api/me") return json(res, 200, { ...USER, weather: !!s.weather });
+  if (path === "/api/forecast") {
+    if (!s.weather) return json(res, 409, { error: "connect SkyCast first" });
+    if (!s.forecastReady) {
+      await new Promise((r) => setTimeout(r, FORECAST_DELAY_MS));
+      sessions.set(s.token, { ...sessions.get(s.token), forecastReady: true });
+    }
+    return json(res, 200, { summary: "Rain expected Thursday: skip watering the balcony plants." });
+  }
   if (path === "/api/plants" && req.method === "GET") {
     await new Promise((r) => setTimeout(r, DATA_DELAY_MS));
     return json(res, 200, { items: [...plants.values()] });

@@ -58,6 +58,9 @@ lest runs list
   sessions, screenshots at failure, and recorded videos with a visible cursor.
 - **Services:** start a dev server or mock before the steps, wait until it
   is ready, and stop it after.
+- **Demos:** record a flow and get a cut video with waits removed, popups in
+  place, chapters from your beat labels, and a still per beat. The demo stays
+  a test, so it fails when the product drifts.
 - **Expressions:** one language, [CEL](https://github.com/google/cel-spec),
   for conditions, assertions and outputs, and `${{ expr }}` inside strings.
   Values reach scripts as environment variables, never as text spliced into
@@ -95,6 +98,7 @@ lest run everything
 
 - [Flow format](docs/flow-format.md)
 - [Browser steps](docs/browser.md)
+- [Demos](docs/demos.md)
 - [Running in CI](docs/ci.md)
 - [Design](docs/design.md): why Lest works the way it does
 - [Development](docs/development.md)

@@ -9,10 +9,17 @@ trap 'rm -rf "$work"' EXIT
 export LEST_DATA_DIR="$work/data" LEST_CONFIG_DIR="$work/config"
 cd "$root/examples"
 
+"$lest" doctor || true
 "$lest" validate
 "$lest" run plants-api
 "$lest" run everything
-"$lest" run connect-weather
+"$lest" run connect-weather -o "$work/demo.json"
+node -e '
+  const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (!r.demo || !r.demo.video) throw new Error("no demo video: " + JSON.stringify(r.demo));
+  if (r.demo.chapters.length !== 3) throw new Error("expected 3 chapters, got " + r.demo.chapters.length);
+  if (!(r.demo.durationMs < r.demo.rawDurationMs)) throw new Error("the cut is not shorter than the take");
+' "$work/demo.json"
 
 # The failure example must fail, with the failing page step named.
 set +e

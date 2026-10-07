@@ -1,0 +1,977 @@
+[
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 0,
+  "atMs": 1791378869171,
+  "kind": "runStarted",
+  "flowId": "everything",
+  "flowName": "Everything",
+  "environment": null,
+  "runDir": "/tmp/lest-data/runs/everything/20261007T131429Z-samf",
+  "steps": [
+   {
+    "id": "checks",
+    "name": "Independent checks",
+    "kind": "group",
+    "children": [
+     {
+      "id": "api",
+      "name": "api",
+      "kind": "flow",
+      "children": [
+       {
+        "id": "api/sign_in",
+        "name": "Sign in through the API",
+        "kind": "http"
+       },
+       {
+        "id": "api/add_plant",
+        "name": "Add a plant",
+        "kind": "http"
+       },
+       {
+        "id": "api/sensor_online",
+        "name": "Wait for the sensor to pair",
+        "kind": "http",
+        "notes": "A new plant's sensor reports \"pairing\" for its first few reads."
+       },
+       {
+        "id": "api/listed",
+        "name": "The plant is listed",
+        "kind": "run"
+       }
+      ]
+     },
+     {
+      "id": "web",
+      "name": "web",
+      "kind": "flow",
+      "children": [
+       {
+        "id": "web/sign_in",
+        "name": "sign_in",
+        "kind": "flow",
+        "children": [
+         {
+          "id": "web/sign_in/login",
+          "name": "Sign in on the login page",
+          "kind": "browser"
+         }
+        ]
+       },
+       {
+        "id": "web/open",
+        "name": "Open the dashboard",
+        "kind": "browser"
+       },
+       {
+        "id": "web/check",
+        "name": "The summary counts the plants",
+        "kind": "assert"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "finally": [],
+  "tools": []
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 1,
+  "atMs": 1791378869202,
+  "kind": "demoProgress",
+  "message": "starting service sprout"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 2,
+  "atMs": 1791378869412,
+  "kind": "stepStarted",
+  "stepId": "checks",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 3,
+  "atMs": 1791378869412,
+  "kind": "stepStarted",
+  "stepId": "api",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 4,
+  "atMs": 1791378869412,
+  "kind": "stepStarted",
+  "stepId": "api/sign_in",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 5,
+  "atMs": 1791378869412,
+  "kind": "stepStarted",
+  "stepId": "web",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 6,
+  "atMs": 1791378869412,
+  "kind": "stepStarted",
+  "stepId": "web/sign_in",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 7,
+  "atMs": 1791378869412,
+  "kind": "stepStarted",
+  "stepId": "web/sign_in/login",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 8,
+  "atMs": 1791378869415,
+  "kind": "stepFinished",
+  "step": {
+   "id": "api/sign_in",
+   "name": "Sign in through the API",
+   "kind": "http",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.412156Z",
+   "finishedAt": "2026-10-07T13:14:29.415208Z",
+   "durationMs": 3,
+   "resolved": "POST http://127.0.0.1:4173/api/login",
+   "stdout": "{\"token\":\"6e2da47a-8a3a-4f38-b7bf-369412bf41f8\",\"user\":{\"id\":\"u-1\",\"email\":\"demo@example.com\",\"name\":\"Robin\"}}",
+   "httpStatus": 200,
+   "outputs": {
+    "token": "6e2da47a-8a3a-4f38-b7bf-369412bf41f8"
+   }
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 9,
+  "atMs": 1791378869415,
+  "kind": "stepStarted",
+  "stepId": "api/add_plant",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 10,
+  "atMs": 1791378869416,
+  "kind": "stepFinished",
+  "step": {
+   "id": "api/add_plant",
+   "name": "Add a plant",
+   "kind": "http",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.415242Z",
+   "finishedAt": "2026-10-07T13:14:29.416515Z",
+   "durationMs": 1,
+   "resolved": "POST http://127.0.0.1:4173/api/plants",
+   "stdout": "{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}",
+   "httpStatus": 201,
+   "outputs": {
+    "id": "p-4"
+   }
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 11,
+  "atMs": 1791378869416,
+  "kind": "stepStarted",
+  "stepId": "api/sensor_online",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 12,
+  "atMs": 1791378869418,
+  "kind": "stepRetrying",
+  "stepId": "api/sensor_online",
+  "attempt": 1,
+  "maxAttempts": 6,
+  "reason": "`self.outputs.sensor == 'online'` is not true yet",
+  "nextAttemptInMs": 300
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 13,
+  "atMs": 1791378869719,
+  "kind": "stepStarted",
+  "stepId": "api/sensor_online",
+  "attempt": 2
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 14,
+  "atMs": 1791378869721,
+  "kind": "stepRetrying",
+  "stepId": "api/sensor_online",
+  "attempt": 2,
+  "maxAttempts": 6,
+  "reason": "`self.outputs.sensor == 'online'` is not true yet",
+  "nextAttemptInMs": 300
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 15,
+  "atMs": 1791378869749,
+  "kind": "stepOutput",
+  "stepId": "web/sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[0] fill ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 16,
+  "atMs": 1791378869758,
+  "kind": "stepOutput",
+  "stepId": "web/sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[1] fill ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 17,
+  "atMs": 1791378869799,
+  "kind": "stepOutput",
+  "stepId": "web/sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[2] click ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 18,
+  "atMs": 1791378869829,
+  "kind": "stepOutput",
+  "stepId": "web/sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[3] expectText ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 19,
+  "atMs": 1791378869844,
+  "kind": "stepOutput",
+  "stepId": "web/sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[4] screenshot ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 20,
+  "atMs": 1791378869866,
+  "kind": "browserPage",
+  "stepId": "web/sign_in/login",
+  "cdpPort": 61462,
+  "targetId": "FB706016E032BF7AA325B0DDE810D845",
+  "url": "http://127.0.0.1:4173/login"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 21,
+  "atMs": 1791378869866,
+  "kind": "browserPage",
+  "stepId": "web/sign_in/login",
+  "cdpPort": 61462,
+  "targetId": "FB706016E032BF7AA325B0DDE810D845",
+  "url": "http://127.0.0.1:4173/login"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 22,
+  "atMs": 1791378869866,
+  "kind": "browserPage",
+  "stepId": "web/sign_in/login",
+  "cdpPort": 61462,
+  "targetId": "FB706016E032BF7AA325B0DDE810D845",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 23,
+  "atMs": 1791378869866,
+  "kind": "stepArtifact",
+  "stepId": "web/sign_in/login",
+  "artifact": {
+   "label": "signed-in",
+   "path": "artifacts/web__sign_in__login/signed-in.png",
+   "mime": "image/png",
+   "bytes": 49823
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 24,
+  "atMs": 1791378869868,
+  "kind": "browserClosed",
+  "stepId": "web/sign_in/login"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 25,
+  "atMs": 1791378869868,
+  "kind": "stepFinished",
+  "step": {
+   "id": "web/sign_in/login",
+   "name": "Sign in on the login page",
+   "kind": "browser",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.412556Z",
+   "finishedAt": "2026-10-07T13:14:29.868765Z",
+   "durationMs": 456,
+   "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+   "exitCode": 0,
+   "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+   "artifacts": [
+    {
+     "label": "signed-in",
+     "path": "artifacts/web__sign_in__login/signed-in.png",
+     "mime": "image/png",
+     "bytes": 49823
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 26,
+  "atMs": 1791378869868,
+  "kind": "stepFinished",
+  "step": {
+   "id": "web/sign_in",
+   "name": "sign_in",
+   "kind": "flow",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.412548Z",
+   "finishedAt": "2026-10-07T13:14:29.868801Z",
+   "durationMs": 456,
+   "resolved": "flow sign-in",
+   "children": [
+    {
+     "id": "web/sign_in/login",
+     "name": "Sign in on the login page",
+     "kind": "browser",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.412556Z",
+     "finishedAt": "2026-10-07T13:14:29.868765Z",
+     "durationMs": 456,
+     "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+     "exitCode": 0,
+     "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+     "artifacts": [
+      {
+       "label": "signed-in",
+       "path": "artifacts/web__sign_in__login/signed-in.png",
+       "mime": "image/png",
+       "bytes": 49823
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 27,
+  "atMs": 1791378869868,
+  "kind": "stepStarted",
+  "stepId": "web/open",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 28,
+  "atMs": 1791378870022,
+  "kind": "stepStarted",
+  "stepId": "api/sensor_online",
+  "attempt": 3
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 29,
+  "atMs": 1791378870024,
+  "kind": "stepFinished",
+  "step": {
+   "id": "api/sensor_online",
+   "name": "Wait for the sensor to pair",
+   "kind": "http",
+   "status": "passed",
+   "attempts": 3,
+   "startedAt": "2026-10-07T13:14:29.416853Z",
+   "finishedAt": "2026-10-07T13:14:30.024867Z",
+   "durationMs": 608,
+   "resolved": "GET http://127.0.0.1:4173/api/plants/p-4/status",
+   "stdout": "{\"id\":\"p-4\",\"sensor\":\"online\",\"polls\":3}",
+   "httpStatus": 200,
+   "outputs": {
+    "sensor": "online"
+   },
+   "notes": "A new plant's sensor reports \"pairing\" for its first few reads."
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 30,
+  "atMs": 1791378870024,
+  "kind": "stepStarted",
+  "stepId": "api/listed",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 31,
+  "atMs": 1791378870322,
+  "kind": "browserPage",
+  "stepId": "web/open",
+  "cdpPort": 61471,
+  "targetId": "35228B198A50268D574F63894A483534",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 32,
+  "atMs": 1791378870322,
+  "kind": "browserPage",
+  "stepId": "web/open",
+  "cdpPort": 61471,
+  "targetId": "35228B198A50268D574F63894A483534",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 33,
+  "atMs": 1791378870764,
+  "kind": "stepOutput",
+  "stepId": "api/listed",
+  "stream": "stdout",
+  "line": "{\"items\":[{\"id\":\"p-1\",\"name\":\"Monstera\",\"room\":\"Living room\",\"moisture\":62},{\"id\":\"p-2\",\"name\":\"Fiddle-leaf fig\",\"room\":\"Hallway\",\"moisture\":38},{\"id\":\"p-3\",\"name\":\"Snake plant\",\"room\":\"Bedroom\",\"moisture\":21},{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}]}"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 34,
+  "atMs": 1791378870765,
+  "kind": "stepFinished",
+  "step": {
+   "id": "api/listed",
+   "name": "The plant is listed",
+   "kind": "run",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:30.024902Z",
+   "finishedAt": "2026-10-07T13:14:30.765032Z",
+   "durationMs": 740,
+   "resolved": "curl -fsS -H \"Authorization: Bearer $TOKEN\" \"$base_url/api/plants\"",
+   "exitCode": 0,
+   "stdout": "{\"items\":[{\"id\":\"p-1\",\"name\":\"Monstera\",\"room\":\"Living room\",\"moisture\":62},{\"id\":\"p-2\",\"name\":\"Fiddle-leaf fig\",\"room\":\"Hallway\",\"moisture\":38},{\"id\":\"p-3\",\"name\":\"Snake plant\",\"room\":\"Bedroom\",\"moisture\":21},{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}]}",
+   "outputs": {
+    "names": [
+     "Monstera",
+     "Fiddle-leaf fig",
+     "Snake plant",
+     "Basil"
+    ]
+   }
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 35,
+  "atMs": 1791378870765,
+  "kind": "stepFinished",
+  "step": {
+   "id": "api",
+   "name": "api",
+   "kind": "flow",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.412136Z",
+   "finishedAt": "2026-10-07T13:14:30.7651Z",
+   "durationMs": 1352,
+   "resolved": "flow plants-api",
+   "children": [
+    {
+     "id": "api/sign_in",
+     "name": "Sign in through the API",
+     "kind": "http",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.412156Z",
+     "finishedAt": "2026-10-07T13:14:29.415208Z",
+     "durationMs": 3,
+     "resolved": "POST http://127.0.0.1:4173/api/login",
+     "stdout": "{\"token\":\"6e2da47a-8a3a-4f38-b7bf-369412bf41f8\",\"user\":{\"id\":\"u-1\",\"email\":\"demo@example.com\",\"name\":\"Robin\"}}",
+     "httpStatus": 200,
+     "outputs": {
+      "token": "6e2da47a-8a3a-4f38-b7bf-369412bf41f8"
+     }
+    },
+    {
+     "id": "api/add_plant",
+     "name": "Add a plant",
+     "kind": "http",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.415242Z",
+     "finishedAt": "2026-10-07T13:14:29.416515Z",
+     "durationMs": 1,
+     "resolved": "POST http://127.0.0.1:4173/api/plants",
+     "stdout": "{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}",
+     "httpStatus": 201,
+     "outputs": {
+      "id": "p-4"
+     }
+    },
+    {
+     "id": "api/sensor_online",
+     "name": "Wait for the sensor to pair",
+     "kind": "http",
+     "status": "passed",
+     "attempts": 3,
+     "startedAt": "2026-10-07T13:14:29.416853Z",
+     "finishedAt": "2026-10-07T13:14:30.024867Z",
+     "durationMs": 608,
+     "resolved": "GET http://127.0.0.1:4173/api/plants/p-4/status",
+     "stdout": "{\"id\":\"p-4\",\"sensor\":\"online\",\"polls\":3}",
+     "httpStatus": 200,
+     "outputs": {
+      "sensor": "online"
+     },
+     "notes": "A new plant's sensor reports \"pairing\" for its first few reads."
+    },
+    {
+     "id": "api/listed",
+     "name": "The plant is listed",
+     "kind": "run",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:30.024902Z",
+     "finishedAt": "2026-10-07T13:14:30.765032Z",
+     "durationMs": 740,
+     "resolved": "curl -fsS -H \"Authorization: Bearer $TOKEN\" \"$base_url/api/plants\"",
+     "exitCode": 0,
+     "stdout": "{\"items\":[{\"id\":\"p-1\",\"name\":\"Monstera\",\"room\":\"Living room\",\"moisture\":62},{\"id\":\"p-2\",\"name\":\"Fiddle-leaf fig\",\"room\":\"Hallway\",\"moisture\":38},{\"id\":\"p-3\",\"name\":\"Snake plant\",\"room\":\"Bedroom\",\"moisture\":21},{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}]}",
+     "outputs": {
+      "names": [
+       "Monstera",
+       "Fiddle-leaf fig",
+       "Snake plant",
+       "Basil"
+      ]
+     }
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 36,
+  "atMs": 1791378870994,
+  "kind": "stepOutput",
+  "stepId": "web/open",
+  "stream": "browser",
+  "line": "[browser] actions[0] waitFor ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 37,
+  "atMs": 1791378870996,
+  "kind": "stepOutput",
+  "stepId": "web/open",
+  "stream": "browser",
+  "line": "[browser] actions[1] read ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 38,
+  "atMs": 1791378871014,
+  "kind": "stepOutput",
+  "stepId": "web/open",
+  "stream": "browser",
+  "line": "[browser] actions[2] screenshot ok"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 39,
+  "atMs": 1791378871039,
+  "kind": "stepArtifact",
+  "stepId": "web/open",
+  "artifact": {
+   "label": "dashboard",
+   "path": "artifacts/web__open/dashboard.png",
+   "mime": "image/png",
+   "bytes": 46559
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 40,
+  "atMs": 1791378871039,
+  "kind": "browserClosed",
+  "stepId": "web/open"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 41,
+  "atMs": 1791378871039,
+  "kind": "stepFinished",
+  "step": {
+   "id": "web/open",
+   "name": "Open the dashboard",
+   "kind": "browser",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.868816Z",
+   "finishedAt": "2026-10-07T13:14:31.039069Z",
+   "durationMs": 1170,
+   "resolved": "browser http://127.0.0.1:4173/app (3 actions)",
+   "exitCode": 0,
+   "stderr": "[browser] actions[0] waitFor ok\n[browser] actions[1] read ok\n[browser] actions[2] screenshot ok\n",
+   "outputs": {
+    "summary": "4 plants, 1 needs water"
+   },
+   "artifacts": [
+    {
+     "label": "dashboard",
+     "path": "artifacts/web__open/dashboard.png",
+     "mime": "image/png",
+     "bytes": 46559
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 42,
+  "atMs": 1791378871039,
+  "kind": "stepStarted",
+  "stepId": "web/check",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 43,
+  "atMs": 1791378871039,
+  "kind": "stepFinished",
+  "step": {
+   "id": "web/check",
+   "name": "The summary counts the plants",
+   "kind": "assert",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:31.039096Z",
+   "finishedAt": "2026-10-07T13:14:31.039699Z",
+   "durationMs": 0,
+   "resolved": "steps.open.outputs.summary.matches('^[0-9]+ plants, [0-9]+ needs? water$')"
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 44,
+  "atMs": 1791378871039,
+  "kind": "stepFinished",
+  "step": {
+   "id": "web",
+   "name": "web",
+   "kind": "flow",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.412538Z",
+   "finishedAt": "2026-10-07T13:14:31.039722Z",
+   "durationMs": 1627,
+   "resolved": "flow dashboard",
+   "children": [
+    {
+     "id": "web/sign_in",
+     "name": "sign_in",
+     "kind": "flow",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.412548Z",
+     "finishedAt": "2026-10-07T13:14:29.868801Z",
+     "durationMs": 456,
+     "resolved": "flow sign-in",
+     "children": [
+      {
+       "id": "web/sign_in/login",
+       "name": "Sign in on the login page",
+       "kind": "browser",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:29.412556Z",
+       "finishedAt": "2026-10-07T13:14:29.868765Z",
+       "durationMs": 456,
+       "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+       "exitCode": 0,
+       "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+       "artifacts": [
+        {
+         "label": "signed-in",
+         "path": "artifacts/web__sign_in__login/signed-in.png",
+         "mime": "image/png",
+         "bytes": 49823
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "web/open",
+     "name": "Open the dashboard",
+     "kind": "browser",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.868816Z",
+     "finishedAt": "2026-10-07T13:14:31.039069Z",
+     "durationMs": 1170,
+     "resolved": "browser http://127.0.0.1:4173/app (3 actions)",
+     "exitCode": 0,
+     "stderr": "[browser] actions[0] waitFor ok\n[browser] actions[1] read ok\n[browser] actions[2] screenshot ok\n",
+     "outputs": {
+      "summary": "4 plants, 1 needs water"
+     },
+     "artifacts": [
+      {
+       "label": "dashboard",
+       "path": "artifacts/web__open/dashboard.png",
+       "mime": "image/png",
+       "bytes": 46559
+      }
+     ]
+    },
+    {
+     "id": "web/check",
+     "name": "The summary counts the plants",
+     "kind": "assert",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:31.039096Z",
+     "finishedAt": "2026-10-07T13:14:31.039699Z",
+     "durationMs": 0,
+     "resolved": "steps.open.outputs.summary.matches('^[0-9]+ plants, [0-9]+ needs? water$')"
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 45,
+  "atMs": 1791378871039,
+  "kind": "stepFinished",
+  "step": {
+   "id": "checks",
+   "name": "Independent checks",
+   "kind": "group",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:29.412114Z",
+   "finishedAt": "2026-10-07T13:14:31.039741Z",
+   "durationMs": 1627,
+   "children": [
+    {
+     "id": "api",
+     "name": "api",
+     "kind": "flow",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.412136Z",
+     "finishedAt": "2026-10-07T13:14:30.7651Z",
+     "durationMs": 1352,
+     "resolved": "flow plants-api",
+     "children": [
+      {
+       "id": "api/sign_in",
+       "name": "Sign in through the API",
+       "kind": "http",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:29.412156Z",
+       "finishedAt": "2026-10-07T13:14:29.415208Z",
+       "durationMs": 3,
+       "resolved": "POST http://127.0.0.1:4173/api/login",
+       "stdout": "{\"token\":\"6e2da47a-8a3a-4f38-b7bf-369412bf41f8\",\"user\":{\"id\":\"u-1\",\"email\":\"demo@example.com\",\"name\":\"Robin\"}}",
+       "httpStatus": 200,
+       "outputs": {
+        "token": "6e2da47a-8a3a-4f38-b7bf-369412bf41f8"
+       }
+      },
+      {
+       "id": "api/add_plant",
+       "name": "Add a plant",
+       "kind": "http",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:29.415242Z",
+       "finishedAt": "2026-10-07T13:14:29.416515Z",
+       "durationMs": 1,
+       "resolved": "POST http://127.0.0.1:4173/api/plants",
+       "stdout": "{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}",
+       "httpStatus": 201,
+       "outputs": {
+        "id": "p-4"
+       }
+      },
+      {
+       "id": "api/sensor_online",
+       "name": "Wait for the sensor to pair",
+       "kind": "http",
+       "status": "passed",
+       "attempts": 3,
+       "startedAt": "2026-10-07T13:14:29.416853Z",
+       "finishedAt": "2026-10-07T13:14:30.024867Z",
+       "durationMs": 608,
+       "resolved": "GET http://127.0.0.1:4173/api/plants/p-4/status",
+       "stdout": "{\"id\":\"p-4\",\"sensor\":\"online\",\"polls\":3}",
+       "httpStatus": 200,
+       "outputs": {
+        "sensor": "online"
+       },
+       "notes": "A new plant's sensor reports \"pairing\" for its first few reads."
+      },
+      {
+       "id": "api/listed",
+       "name": "The plant is listed",
+       "kind": "run",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:30.024902Z",
+       "finishedAt": "2026-10-07T13:14:30.765032Z",
+       "durationMs": 740,
+       "resolved": "curl -fsS -H \"Authorization: Bearer $TOKEN\" \"$base_url/api/plants\"",
+       "exitCode": 0,
+       "stdout": "{\"items\":[{\"id\":\"p-1\",\"name\":\"Monstera\",\"room\":\"Living room\",\"moisture\":62},{\"id\":\"p-2\",\"name\":\"Fiddle-leaf fig\",\"room\":\"Hallway\",\"moisture\":38},{\"id\":\"p-3\",\"name\":\"Snake plant\",\"room\":\"Bedroom\",\"moisture\":21},{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}]}",
+       "outputs": {
+        "names": [
+         "Monstera",
+         "Fiddle-leaf fig",
+         "Snake plant",
+         "Basil"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "id": "web",
+     "name": "web",
+     "kind": "flow",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:29.412538Z",
+     "finishedAt": "2026-10-07T13:14:31.039722Z",
+     "durationMs": 1627,
+     "resolved": "flow dashboard",
+     "children": [
+      {
+       "id": "web/sign_in",
+       "name": "sign_in",
+       "kind": "flow",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:29.412548Z",
+       "finishedAt": "2026-10-07T13:14:29.868801Z",
+       "durationMs": 456,
+       "resolved": "flow sign-in",
+       "children": [
+        {
+         "id": "web/sign_in/login",
+         "name": "Sign in on the login page",
+         "kind": "browser",
+         "status": "passed",
+         "attempts": 1,
+         "startedAt": "2026-10-07T13:14:29.412556Z",
+         "finishedAt": "2026-10-07T13:14:29.868765Z",
+         "durationMs": 456,
+         "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+         "exitCode": 0,
+         "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+         "artifacts": [
+          {
+           "label": "signed-in",
+           "path": "artifacts/web__sign_in__login/signed-in.png",
+           "mime": "image/png",
+           "bytes": 49823
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "web/open",
+       "name": "Open the dashboard",
+       "kind": "browser",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:29.868816Z",
+       "finishedAt": "2026-10-07T13:14:31.039069Z",
+       "durationMs": 1170,
+       "resolved": "browser http://127.0.0.1:4173/app (3 actions)",
+       "exitCode": 0,
+       "stderr": "[browser] actions[0] waitFor ok\n[browser] actions[1] read ok\n[browser] actions[2] screenshot ok\n",
+       "outputs": {
+        "summary": "4 plants, 1 needs water"
+       },
+       "artifacts": [
+        {
+         "label": "dashboard",
+         "path": "artifacts/web__open/dashboard.png",
+         "mime": "image/png",
+         "bytes": 46559
+        }
+       ]
+      },
+      {
+       "id": "web/check",
+       "name": "The summary counts the plants",
+       "kind": "assert",
+       "status": "passed",
+       "attempts": 1,
+       "startedAt": "2026-10-07T13:14:31.039096Z",
+       "finishedAt": "2026-10-07T13:14:31.039699Z",
+       "durationMs": 0,
+       "resolved": "steps.open.outputs.summary.matches('^[0-9]+ plants, [0-9]+ needs? water$')"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 46,
+  "atMs": 1791378871039,
+  "kind": "cleanupStarted",
+  "stepId": "api/add_plant"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 47,
+  "atMs": 1791378871059,
+  "kind": "cleanupFinished",
+  "stepId": "api/add_plant",
+  "status": "passed"
+ },
+ {
+  "runId": "20261007T131429Z-samf",
+  "seq": 48,
+  "atMs": 1791378871061,
+  "kind": "runFinished",
+  "result": "passed",
+  "durationMs": 1889,
+  "error": null,
+  "reportPath": "/tmp/lest-data/runs/everything/20261007T131429Z-samf/report.json"
+ }
+]

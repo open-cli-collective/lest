@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod event;
 pub mod expr;
 pub mod headline;
+pub mod media;
 pub mod notify;
 pub mod paths;
 pub mod process;

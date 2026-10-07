@@ -26,4 +26,5 @@ steps:
       url: "${{ vars.base_url }}/app"
       session: sprout
       record: true
+      viewport: [1440, 900]
       script: connect-weather.mjs

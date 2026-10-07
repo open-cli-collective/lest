@@ -1,0 +1,363 @@
+[
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 0,
+  "atMs": 1791378856718,
+  "kind": "runStarted",
+  "flowId": "dashboard",
+  "flowName": "Dashboard shows every plant",
+  "environment": "local",
+  "runDir": "/tmp/lest-data/runs/dashboard/20261007T131416Z-01zn",
+  "steps": [
+   {
+    "id": "sign_in",
+    "name": "sign_in",
+    "kind": "flow",
+    "children": [
+     {
+      "id": "sign_in/login",
+      "name": "Sign in on the login page",
+      "kind": "browser"
+     }
+    ]
+   },
+   {
+    "id": "open",
+    "name": "Open the dashboard",
+    "kind": "browser"
+   },
+   {
+    "id": "check",
+    "name": "The summary counts the plants",
+    "kind": "assert"
+   }
+  ],
+  "finally": [],
+  "tools": []
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 1,
+  "atMs": 1791378856897,
+  "kind": "demoProgress",
+  "message": "starting service sprout"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 2,
+  "atMs": 1791378857106,
+  "kind": "stepStarted",
+  "stepId": "sign_in",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 3,
+  "atMs": 1791378857106,
+  "kind": "stepStarted",
+  "stepId": "sign_in/login",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 4,
+  "atMs": 1791378857410,
+  "kind": "browserPage",
+  "stepId": "sign_in/login",
+  "cdpPort": 61393,
+  "targetId": "9357D06B5CDA9A6FDF8BAEA7079546AE",
+  "url": "http://127.0.0.1:4173/login"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 5,
+  "atMs": 1791378857432,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[0] fill ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 6,
+  "atMs": 1791378857440,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[1] fill ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 7,
+  "atMs": 1791378857465,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[2] click ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 8,
+  "atMs": 1791378857495,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[3] expectText ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 9,
+  "atMs": 1791378857514,
+  "kind": "stepOutput",
+  "stepId": "sign_in/login",
+  "stream": "browser",
+  "line": "[browser] actions[4] screenshot ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 10,
+  "atMs": 1791378857540,
+  "kind": "browserPage",
+  "stepId": "sign_in/login",
+  "cdpPort": 61393,
+  "targetId": "9357D06B5CDA9A6FDF8BAEA7079546AE",
+  "url": "http://127.0.0.1:4173/login"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 11,
+  "atMs": 1791378857540,
+  "kind": "browserPage",
+  "stepId": "sign_in/login",
+  "cdpPort": 61393,
+  "targetId": "9357D06B5CDA9A6FDF8BAEA7079546AE",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 12,
+  "atMs": 1791378857540,
+  "kind": "stepArtifact",
+  "stepId": "sign_in/login",
+  "artifact": {
+   "label": "signed-in",
+   "path": "artifacts/sign_in__login/signed-in.png",
+   "mime": "image/png",
+   "bytes": 49828
+  }
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 13,
+  "atMs": 1791378857540,
+  "kind": "browserClosed",
+  "stepId": "sign_in/login"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 14,
+  "atMs": 1791378857540,
+  "kind": "stepFinished",
+  "step": {
+   "id": "sign_in/login",
+   "name": "Sign in on the login page",
+   "kind": "browser",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:17.106457Z",
+   "finishedAt": "2026-10-07T13:14:17.540265Z",
+   "durationMs": 433,
+   "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+   "exitCode": 0,
+   "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+   "artifacts": [
+    {
+     "label": "signed-in",
+     "path": "artifacts/sign_in__login/signed-in.png",
+     "mime": "image/png",
+     "bytes": 49828
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 15,
+  "atMs": 1791378857540,
+  "kind": "stepFinished",
+  "step": {
+   "id": "sign_in",
+   "name": "sign_in",
+   "kind": "flow",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:17.106415Z",
+   "finishedAt": "2026-10-07T13:14:17.540295Z",
+   "durationMs": 433,
+   "resolved": "flow sign-in",
+   "children": [
+    {
+     "id": "sign_in/login",
+     "name": "Sign in on the login page",
+     "kind": "browser",
+     "status": "passed",
+     "attempts": 1,
+     "startedAt": "2026-10-07T13:14:17.106457Z",
+     "finishedAt": "2026-10-07T13:14:17.540265Z",
+     "durationMs": 433,
+     "resolved": "browser http://127.0.0.1:4173/login (5 actions)",
+     "exitCode": 0,
+     "stderr": "[browser] actions[0] fill ok\n[browser] actions[1] fill ok\n[browser] actions[2] click ok\n[browser] actions[3] expectText ok\n[browser] actions[4] screenshot ok\n",
+     "artifacts": [
+      {
+       "label": "signed-in",
+       "path": "artifacts/sign_in__login/signed-in.png",
+       "mime": "image/png",
+       "bytes": 49828
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 16,
+  "atMs": 1791378857540,
+  "kind": "stepStarted",
+  "stepId": "open",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 17,
+  "atMs": 1791378857993,
+  "kind": "browserPage",
+  "stepId": "open",
+  "cdpPort": 61396,
+  "targetId": "2E0835506EA9DD63F481C01F61654156",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 18,
+  "atMs": 1791378857993,
+  "kind": "browserPage",
+  "stepId": "open",
+  "cdpPort": 61396,
+  "targetId": "2E0835506EA9DD63F481C01F61654156",
+  "url": "http://127.0.0.1:4173/app"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 19,
+  "atMs": 1791378858656,
+  "kind": "stepOutput",
+  "stepId": "open",
+  "stream": "browser",
+  "line": "[browser] actions[0] waitFor ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 20,
+  "atMs": 1791378858662,
+  "kind": "stepOutput",
+  "stepId": "open",
+  "stream": "browser",
+  "line": "[browser] actions[1] read ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 21,
+  "atMs": 1791378858686,
+  "kind": "stepOutput",
+  "stepId": "open",
+  "stream": "browser",
+  "line": "[browser] actions[2] screenshot ok"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 22,
+  "atMs": 1791378858712,
+  "kind": "stepArtifact",
+  "stepId": "open",
+  "artifact": {
+   "label": "dashboard",
+   "path": "artifacts/open/dashboard.png",
+   "mime": "image/png",
+   "bytes": 42128
+  }
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 23,
+  "atMs": 1791378858712,
+  "kind": "browserClosed",
+  "stepId": "open"
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 24,
+  "atMs": 1791378858712,
+  "kind": "stepFinished",
+  "step": {
+   "id": "open",
+   "name": "Open the dashboard",
+   "kind": "browser",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:17.540306Z",
+   "finishedAt": "2026-10-07T13:14:18.712216Z",
+   "durationMs": 1171,
+   "resolved": "browser http://127.0.0.1:4173/app (3 actions)",
+   "exitCode": 0,
+   "stderr": "[browser] actions[0] waitFor ok\n[browser] actions[1] read ok\n[browser] actions[2] screenshot ok\n",
+   "outputs": {
+    "summary": "3 plants, 1 needs water"
+   },
+   "artifacts": [
+    {
+     "label": "dashboard",
+     "path": "artifacts/open/dashboard.png",
+     "mime": "image/png",
+     "bytes": 42128
+    }
+   ]
+  }
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 25,
+  "atMs": 1791378858712,
+  "kind": "stepStarted",
+  "stepId": "check",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 26,
+  "atMs": 1791378858712,
+  "kind": "stepFinished",
+  "step": {
+   "id": "check",
+   "name": "The summary counts the plants",
+   "kind": "assert",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:14:18.712243Z",
+   "finishedAt": "2026-10-07T13:14:18.71292Z",
+   "durationMs": 0,
+   "resolved": "steps.open.outputs.summary.matches('^[0-9]+ plants, [0-9]+ needs? water$')"
+  }
+ },
+ {
+  "runId": "20261007T131416Z-01zn",
+  "seq": 27,
+  "atMs": 1791378858715,
+  "kind": "runFinished",
+  "result": "passed",
+  "durationMs": 1996,
+  "error": null,
+  "reportPath": "/tmp/lest-data/runs/dashboard/20261007T131416Z-01zn/report.json"
+ }
+]

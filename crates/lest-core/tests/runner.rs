@@ -651,6 +651,34 @@ steps:
 }
 
 #[tokio::test]
+async fn cancel_during_a_retry_wait_is_not_a_failure() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: retry-cancel
+name: Retry cancel
+steps:
+  - id: poll
+    run: echo pending
+    retry: { attempts: 50, delay: 200ms, until: "self.stdout.trim() == 'ready'" }
+"#,
+    )]);
+    let engine = f.engine(&[]);
+    let cancel = RunCancel::default();
+    let c2 = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        c2.main.cancel();
+    });
+    let (r, _) = run_with(&engine, "retry-cancel", &[], cancel).await;
+    assert_eq!(r.result, RunResult::Cancelled);
+    let s = r.find_step("poll").unwrap();
+    assert_eq!(s.status, Some(StepStatus::Errored), "{s:#?}");
+    assert_eq!(s.error.as_deref(), Some("cancelled"));
+}
+
+#[tokio::test]
 async fn failed_runs_notify_webhooks_with_a_summary() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

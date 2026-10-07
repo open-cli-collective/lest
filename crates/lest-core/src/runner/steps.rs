@@ -13,6 +13,14 @@ use crate::report::{Artifact, Beat};
 use crate::secrets::Redactor;
 use crate::spec::{Step, StepKind};
 
+/// The raw material of a recording: the videos and when the user acted.
+#[derive(Debug, Clone, Default)]
+pub struct Recording {
+    pub videos: Vec<crate::browser::Video>,
+    /// Recorder-relative times of user actions.
+    pub actions: Vec<u64>,
+}
+
 /// The result of one attempt, before `expect`, `until` and `outputs`.
 #[derive(Debug, Clone, Default)]
 pub struct AttemptOutcome {
@@ -34,8 +42,8 @@ pub struct AttemptOutcome {
     pub outputs: BTreeMap<String, Json>,
     pub beats: Vec<Beat>,
     pub artifacts: Vec<Artifact>,
-    /// The videos a recorded browser step produced.
-    pub recording: Option<Vec<crate::browser::Video>>,
+    /// What a recorded browser step captured.
+    pub recording: Option<Recording>,
 }
 
 impl AttemptOutcome {

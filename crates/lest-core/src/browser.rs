@@ -40,6 +40,10 @@ pub struct Video {
     pub role: String,
     pub opened_at_ms: u64,
     pub closed_at_ms: Option<u64>,
+    /// The page's own size, when it is smaller than the recording frame
+    /// (a popup window).
+    #[serde(default)]
+    pub size: Option<[u32; 2]>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,8 +85,14 @@ enum HarnessEvent {
         role: String,
         opened_at_ms: u64,
         closed_at_ms: Option<u64>,
+        #[serde(default)]
+        size: Option<[u32; 2]>,
     },
     Session {},
+    #[serde(rename_all = "camelCase")]
+    Action {
+        at_ms: u64,
+    },
 }
 
 impl NodeBrowser {
@@ -194,6 +204,7 @@ struct Collected {
     beats: Vec<Beat>,
     artifacts: Vec<Artifact>,
     videos: Vec<Video>,
+    actions: Vec<u64>,
     error: Option<String>,
     failed_phase: Option<(String, String)>,
 }
@@ -246,10 +257,11 @@ fn apply(line: &str, call: &BrowserCall<'_>, cdp_port: Option<u16>, out: &mut Co
                 _ => message,
             });
         }
-        HarnessEvent::Video { path, role, opened_at_ms, closed_at_ms } => {
-            out.videos.push(Video { path, role, opened_at_ms, closed_at_ms });
+        HarnessEvent::Video { path, role, opened_at_ms, closed_at_ms, size } => {
+            out.videos.push(Video { path, role, opened_at_ms, closed_at_ms, size });
         }
         HarnessEvent::Session {} => {}
+        HarnessEvent::Action { at_ms } => out.actions.push(at_ms),
     }
 }
 
@@ -366,7 +378,11 @@ impl BrowserDriver for NodeBrowser {
                 outputs: collected.outputs,
                 beats: collected.beats,
                 artifacts: collected.artifacts,
-                recording: if b.record { Some(collected.videos.clone()) } else { None },
+                recording: if b.record {
+                    Some(crate::runner::Recording { videos: collected.videos.clone(), actions: collected.actions.clone() })
+                } else {
+                    None
+                },
                 ..Default::default()
             };
             if let Some(e) = res.spawn_error {

@@ -265,23 +265,42 @@ pub enum CleanupStatus {
     NotRun,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DemoReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_video: Option<String>,
+    /// WebVTT chapter track, relative to the run directory.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chapters: Option<String>,
+    pub chapters_vtt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beat_sheet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_duration_ms: Option<u64>,
+    /// Labeled beats, with where they fall in the cut and a still of each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chapters: Vec<DemoChapter>,
+    /// The step that recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DemoChapter {
+    pub marker: String,
+    pub label: String,
+    /// Milliseconds into the cut.
+    pub at_ms: u64,
+    /// A frame just after the beat, relative to the run directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub still: Option<String>,
 }
 
 impl RunReport {

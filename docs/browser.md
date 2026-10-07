@@ -47,7 +47,7 @@ Most checks need no code:
 | `expectUrl: <regex>` | Waits until the URL matches (a JavaScript regular expression). |
 | `read: {name, selector}` | Records the element's text as an output. |
 | `screenshot: <name>` | Saves `<name>.png` as an artifact. |
-| `beat: <marker>` | Marks a moment in a recording. |
+| `beat: <marker>` | Marks a moment in a recording. See [demos](demos.md). |
 | `wait: <duration>` | Pauses (a held shot when recording). |
 
 Selectors use Playwright's syntax: CSS, `text=Sign in`,
@@ -134,7 +134,7 @@ headline names the action, the expectation and what the page showed.
 
 | Field | Meaning |
 |---|---|
-| `record` | Record a video of the step, with a visible cursor and paced typing. Popup windows are recorded separately. |
+| `record` | Record the step and cut a demo video from it. See [demos](demos.md). |
 | `viewport` | `[width, height]`; default `[1280, 800]`, or `[1920, 1080]` when recording. |
 | `args` | Extra Chromium arguments for this step; `browser.args` in `lest.yaml` applies to every step. |
 | `timeout` | The whole step's limit (default 120s). |

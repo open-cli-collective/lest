@@ -93,6 +93,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function makeUi(getPage, recording) {
   const pace = recording ? { move: 700, settle: 120, key: 65, hold: 400 } : null;
+  // Recorded actions are moments the demo cut always keeps.
+  const acted = (name) => recording && emit({ type: "action", name });
   const locate = (sel) => getPage().locator(sel).first();
 
   async function moveTo(sel) {
@@ -136,16 +138,19 @@ function makeUi(getPage, recording) {
 
   return {
     async goto(url) {
+      acted("goto");
       await getPage().goto(url);
       if (pace) await sleep(pace.hold);
     },
     async click(sel) {
+      acted("click");
       const loc = await moveTo(sel);
       if (pace) await getPage().evaluate(() => window.__lestCursor?.press()).catch(() => {});
       await loc.click();
       if (pace) await sleep(150);
     },
     async fill(sel, value, { secret = false } = {}) {
+      acted("fill");
       const loc = await moveTo(sel);
       // Typing key by key reads well on camera but only suits text fields;
       // dates, colors and other inputs are filled directly.
@@ -164,14 +169,17 @@ function makeUi(getPage, recording) {
       if ((await loc.inputValue().catch(() => value)) !== value) await loc.fill(value);
     },
     async select(sel, value) {
+      acted("select");
       const loc = await moveTo(sel);
       await loc.selectOption(value);
     },
     async hover(sel) {
+      acted("hover");
       await moveTo(sel);
       await locate(sel).hover();
     },
     async press(key) {
+      acted("press");
       await getPage().keyboard.press(key);
       if (pace) await sleep(pace.settle);
     },
@@ -241,7 +249,11 @@ async function main() {
   const pages = new Map(); // page -> { role, openedAt, closedAt }
   let current = null;
   const track = async (page, role) => {
-    pages.set(page, { role, openedAt: Date.now() - t0, closedAt: null });
+    const info = { role, openedAt: Date.now() - t0, closedAt: null, size: null };
+    pages.set(page, info);
+    // A popup's own size: its recording is drawn at the top left of a
+    // frame the size of the main viewport.
+    page.waitForLoadState("domcontentloaded").then(() => page.evaluate(() => [innerWidth, innerHeight])).then((s) => (info.size = s)).catch(() => {});
     current = page;
     const report = async () => {
       const id = await targetId(context, page);
@@ -384,7 +396,7 @@ async function main() {
   for (const { v, info } of videos) {
     try {
       const path = await v.path();
-      emit({ type: "video", path, role: info.role, openedAtMs: info.openedAt, closedAtMs: info.closedAt });
+      emit({ type: "video", path, role: info.role, openedAtMs: info.openedAt, closedAtMs: info.closedAt, size: info.size });
     } catch (e) {
       log(`video: ${e.message}`);
     }

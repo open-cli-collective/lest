@@ -43,8 +43,13 @@ impl StateRoots {
     pub fn sessions_dir(&self) -> PathBuf {
         self.data_dir.join("sessions")
     }
+    /// Resource and service locks. They guard things shared by every Lest
+    /// process on the machine (ports, accounts), so they live in one
+    /// per-user place rather than in the data directory, which tests and
+    /// projects can override.
     pub fn locks_dir(&self) -> PathBuf {
-        self.data_dir.join("locks")
+        let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "user".into());
+        std::env::temp_dir().join(format!("lest-locks-{user}"))
     }
     pub fn ai_dir(&self) -> PathBuf {
         self.data_dir.join("ai")

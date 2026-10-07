@@ -66,7 +66,7 @@ steps:
 | `resources` | Shared things (an account, a fixture). Two runs that name the same resource never overlap; the second waits. |
 | `affects` | Path globs this flow covers, for change-based selection. |
 | `outputs` | Values returned to a calling `flow` step, as CEL expressions. |
-| `demo` | Presents the flow as a recordable demo. |
+| `demo` | Presents the flow as a demo. See [demos.md](demos.md). |
 | `steps` | The steps, run in order. |
 | `finally` | Steps that always run after `steps`, also after a failure or a cancel. |
 
@@ -224,7 +224,8 @@ cleanups: the whole process group gets TERM, and whatever is still running
 already passes before starting, Lest uses the running instance instead
 (`reuse: false` to always start one), so a dev server you keep running is
 used as is. A service declared with the same id in several called flows starts
-once per run. Its output is kept as `services/service-<id>.log` in the run's
+once per run, and runs that use the same service id take turns, so one run
+never stops a service another run is using. Its output is kept as `services/service-<id>.log` in the run's
 artifacts, with secret values redacted. Services receive vars (with the
 environment applied), `LEST_PROJECT_DIR` and `LEST_RUN_DIR`; services of the
 flow being run also receive its inputs. A called flow's services start

@@ -95,9 +95,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: examples/package-lock.json
-      - name: Install Chromium for Playwright
+      - name: Install Chromium for Playwright, and ffmpeg for demo cuts
         working-directory: examples
         run: |
           npm ci
           npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - run: make e2e

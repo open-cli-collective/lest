@@ -28,7 +28,7 @@ use crate::store::{Store, new_run_id};
 use crate::tools::{self, Need};
 
 pub use artifacts::store_file as store_artifact;
-pub use steps::AttemptOutcome;
+pub use steps::{AttemptOutcome, Recording};
 
 /// Everything a run needs from its surroundings.
 #[derive(Clone)]
@@ -138,6 +138,8 @@ pub struct RunCtx {
     pub env_remove: Vec<String>,
     cleanups: Mutex<Vec<PendingCleanup>>,
     warnings: Mutex<Vec<String>>,
+    /// The finished demo, when a step recorded one.
+    demo: Mutex<Option<DemoReport>>,
 }
 
 impl RunCtx {
@@ -530,6 +532,9 @@ pub async fn execute_with_id(
     let redactor = Redactor::new(&secrets);
 
     let mut resources: Vec<String> = flows.iter().flat_map(|f| f.flow.resources.iter().cloned()).collect();
+    // A service is owned by one run at a time: another run reusing it would
+    // lose it when the owner stops it.
+    resources.extend(flows.iter().flat_map(|f| f.flow.services.iter().map(|s| format!("service-{}", s.id))));
     resources.sort();
     resources.dedup();
     let locks = {
@@ -750,6 +755,7 @@ pub async fn execute_with_id(
         env_remove,
         cleanups: Mutex::new(Vec::new()),
         warnings: Mutex::new(report.warnings.clone()),
+        demo: Mutex::new(None),
     });
 
     let frame = Frame { flow: lf, prefix: String::new(), inputs, vars, steps: Mutex::new(serde_json::Map::new()) };
@@ -788,6 +794,7 @@ pub async fn execute_with_id(
         r.stop().await;
     }
     report.warnings = ctx.warnings.lock().expect("lock").clone();
+    report.demo = ctx.demo.lock().expect("lock").take();
     finish(engine, &emitter, report, started)
 }
 
@@ -1271,7 +1278,12 @@ impl<'e> Runner<'e> {
                 break;
             }
         }
-        let o = last.unwrap_or_default();
+        let mut o = last.unwrap_or_default();
+        // Cancelled while waiting to retry: the step did not fail, it was
+        // stopped.
+        if cancel.is_cancelled() && !o.passed {
+            o.cancelled = true;
+        }
         r.duration_ms = started.elapsed().as_millis() as u64;
         r.resolved = o.resolved.clone();
         r.exit_code = o.exit_code;
@@ -1292,7 +1304,92 @@ impl<'e> Runner<'e> {
         } else {
             StepStatus::Failed
         });
+        if r.status == Some(StepStatus::Passed)
+            && let Some(rec) = o.recording.clone()
+            && !rec.videos.is_empty()
+        {
+            self.produce_demo(frame, &mut r, rec).await;
+        }
         self.finish_step(frame, step, r, Some(&o))
+    }
+
+    /// Cuts a passed recording into the deliverable: the composed and
+    /// shortened video, chapters, and a still per labeled beat. Without
+    /// ffmpeg the raw recording stays the deliverable.
+    async fn produce_demo(&self, frame: &Frame<'_>, r: &mut StepReport, rec: Recording) {
+        let demo = frame.flow.flow.demo.clone();
+        let labels: Vec<(String, String)> = demo
+            .as_ref()
+            .map(|d| d.beats.iter().map(|b| (b.marker.clone(), b.label.clone())).collect())
+            .unwrap_or_default();
+        let mut opts = crate::media::CutOptions::default();
+        if let Some(cut) = demo.as_ref().and_then(|d| d.cut.as_ref()) {
+            if let Some(d) = cut.max_gap.as_ref().and_then(|d| d.parse().ok()) {
+                opts.max_gap = d;
+            }
+            if let Some(d) = cut.keep.as_ref().and_then(|d| d.parse().ok()) {
+                opts.keep = d;
+            }
+        }
+        let mut out = DemoReport {
+            raw_video: r.artifacts.iter().find(|a| a.label == "Recording").map(|a| a.path.clone()),
+            step: Some(r.id.clone()),
+            ..Default::default()
+        };
+        if !crate::media::ffmpeg_available() {
+            let msg = "ffmpeg is not installed; the raw recording is the deliverable".to_string();
+            self.ctx.warn(msg.clone());
+            out.error = Some(msg);
+            *self.ctx.demo.lock().expect("lock") = Some(out);
+            return;
+        }
+        self.ctx.emitter.emit(EventBody::DemoProgress { message: "cutting the recording".into() });
+        let dest = self.ctx.artifacts_dir().join(r.id.replace('/', "__"));
+        let out_dir = dest.join("demo");
+        let beats = r.beats.clone();
+        let od = out_dir.clone();
+        let produced = tokio::task::spawn_blocking(move || {
+            crate::media::produce(&rec.videos, &beats, &rec.actions, &labels, &opts, &od)
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+        match produced {
+            Ok(p) => {
+                let mut add = |path: &std::path::Path, label: &str| -> Option<String> {
+                    let a = artifacts::store_file(path, &out_dir, &self.ctx.run_dir, Some(label), None).ok()?;
+                    self.ctx.emitter.emit(EventBody::StepArtifact { step_id: r.id.clone(), artifact: a.clone() });
+                    let rel = a.path.clone();
+                    r.artifacts.push(a);
+                    Some(rel)
+                };
+                out.video = add(&p.video, "Demo video");
+                out.chapters_vtt = p.chapters.as_deref().and_then(|c| add(c, "Chapters"));
+                out.beat_sheet = p.beat_sheet.as_deref().and_then(|b| add(b, "Beat sheet"));
+                for (c, still) in &p.stills {
+                    let rel = add(still, &c.label);
+                    out.chapters.push(crate::report::DemoChapter {
+                        marker: c.marker.clone(),
+                        label: c.label.clone(),
+                        at_ms: c.at_ms,
+                        still: rel,
+                    });
+                }
+                out.duration_ms = Some(p.duration_ms);
+                out.raw_duration_ms = Some(p.raw_duration_ms);
+                self.ctx.emitter.emit(EventBody::DemoProgress {
+                    message: format!(
+                        "demo cut: {:.1}s from a {:.1}s take",
+                        p.duration_ms as f64 / 1000.0,
+                        p.raw_duration_ms as f64 / 1000.0
+                    ),
+                });
+            }
+            Err(e) => {
+                self.ctx.warn(format!("demo cut failed, the raw recording is kept: {e}"));
+                out.error = Some(e);
+            }
+        }
+        *self.ctx.demo.lock().expect("lock") = Some(out);
     }
 
     async fn run_cleanups(&self, result: RunResult) -> Vec<CleanupReport> {

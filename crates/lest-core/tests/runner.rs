@@ -649,3 +649,31 @@ steps:
     let log = std::fs::read_to_string(dir.join("services/service-stubborn.log")).unwrap();
     assert!(log.contains("token is [redacted:token]"), "{log}");
 }
+
+#[tokio::test]
+async fn cancel_during_a_retry_wait_is_not_a_failure() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: retry-cancel
+name: Retry cancel
+steps:
+  - id: poll
+    run: echo pending
+    retry: { attempts: 50, delay: 200ms, until: "self.stdout.trim() == 'ready'" }
+"#,
+    )]);
+    let engine = f.engine(&[]);
+    let cancel = RunCancel::default();
+    let c2 = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        c2.main.cancel();
+    });
+    let (r, _) = run_with(&engine, "retry-cancel", &[], cancel).await;
+    assert_eq!(r.result, RunResult::Cancelled);
+    let s = r.find_step("poll").unwrap();
+    assert_eq!(s.status, Some(StepStatus::Errored), "{s:#?}");
+    assert_eq!(s.error.as_deref(), Some("cancelled"));
+}

@@ -1,4 +1,4 @@
-.PHONY: deps tidy fmt lint test test-cover build check install clean
+.PHONY: deps tidy fmt lint test test-cover build e2e check install clean
 
 deps:
 	cargo fetch --locked
@@ -21,6 +21,9 @@ test-cover: test
 
 build:
 	cargo build --release --locked -p lest
+
+e2e: build
+	scripts/e2e.sh
 
 check: tidy lint test build
 

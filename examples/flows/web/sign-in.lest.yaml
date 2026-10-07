@@ -1,0 +1,29 @@
+apiVersion: lest/v1
+id: sign-in
+name: Sign in
+description: |
+  Signs in through the login page and saves the browser session as
+  `sprout`, so other flows (and demo recordings) start signed in.
+tags: [web, smoke]
+affects: ["app/**"]
+environments:
+  local: { base_url: "http://127.0.0.1:4173" }
+defaultEnvironment: local
+secrets: [sprout_password]
+services:
+  - id: sprout
+    run: node "$LEST_PROJECT_DIR/app/server.mjs"
+    env: { PORT: "4173" }
+    ready: { http: "http://127.0.0.1:4173/health" }
+steps:
+  - id: login
+    name: Sign in on the login page
+    browser:
+      url: "${{ vars.base_url }}/login"
+      saveSession: sprout
+      actions:
+        - fill: { selector: "#email", value: demo@example.com }
+        - fill: { selector: "#password", value: "${{ secrets.sprout_password }}" }
+        - click: "button[type=submit]"
+        - expectText: { selector: h1, text: Good morning }
+        - screenshot: signed-in

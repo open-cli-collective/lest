@@ -62,6 +62,7 @@ steps:
 | `inputs` | Values chosen per run (`--input name=value`). See [Inputs](#inputs). |
 | `secrets` | Secret names the flow reads as `${{ secrets.<name> }}`. See [Secrets](#secrets). |
 | `tools` | CLIs the flow needs. See [Tools](#tools). |
+| `services` | Processes started before the steps and stopped at the end. See [Services](#services). |
 | `resources` | Shared things (an account, a fixture). Two runs that name the same resource never overlap; the second waits. |
 | `affects` | Path globs this flow covers, for change-based selection. |
 | `outputs` | Values returned to a calling `flow` step, as CEL expressions. |
@@ -82,7 +83,7 @@ of these keys, which decides what it does:
 | `run` | Runs a script. |
 | `http` | Sends an HTTP request. |
 | `assert` | Checks CEL conditions. |
-| `browser` | Drives a browser. |
+| `browser` | Drives a browser. See [browser.md](browser.md). |
 | `flow` | Calls another flow. |
 | `steps` | Groups steps, in order or in parallel. |
 
@@ -115,7 +116,8 @@ Fields every step accepts:
 
 The script runs with `-e`: the first failing command fails the step. It passes
 when the exit code is 0 (unless `expect` says otherwise). When the script
-exits, anything it left running in the background is stopped.
+exits, anything it left running in the background is stopped; declare
+long-running processes as [services](#services).
 
 A script cannot contain `${{ }}`. Values reach a script as environment
 variables, never as text spliced into shell code:
@@ -201,6 +203,32 @@ This is also how suites are written: a flow whose steps call other flows.
 A sequential group stops at its first failure. A parallel group runs every
 child; its children cannot read each other's results, and later steps can
 read all of them.
+
+## Services
+
+```yaml
+services:
+  - id: app
+    run: npm run dev
+    cwd: ..                        # relative to the flow file
+    env: { PORT: "4173" }
+    ready:
+      http: "http://127.0.0.1:4173/health"   # status below 400
+      # log: "listening on"                  # or a line in its output
+      timeout: 60s                           # default 30s
+```
+
+Services start after preflight and before the first step, and stop after
+cleanups: the whole process group gets TERM, and whatever is still running
+3 seconds later gets KILL. When the ready check
+already passes before starting, Lest uses the running instance instead
+(`reuse: false` to always start one), so a dev server you keep running is
+used as is. A service declared with the same id in several called flows starts
+once per run. Its output is kept as `services/service-<id>.log` in the run's
+artifacts, with secret values redacted. Services receive vars (with the
+environment applied), `LEST_PROJECT_DIR` and `LEST_RUN_DIR`; services of the
+flow being run also receive its inputs. A called flow's services start
+before it is called, so they see its vars and default inputs only.
 
 ## Expressions
 

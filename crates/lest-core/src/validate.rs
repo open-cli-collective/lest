@@ -256,6 +256,7 @@ pub fn validate_flow(lf: &LoadedFlow, catalog: &Catalog) -> Vec<Diagnostic> {
         }
     }
     check_demo(&mut ctx, flow, &all);
+    check_services(&mut ctx, flow);
     ctx.diags
 }
 
@@ -544,10 +545,15 @@ fn check_browser(ctx: &mut Ctx, step: &Step, at: &str, v: &BTreeSet<String>) {
         if let Some(t) = &a.expect_text {
             ctx.check_template(&aat, &t.text, WITH_SECRETS, v);
         }
+        // expectUrl runs as a JavaScript regular expression in the browser.
         if let Some(re) = &a.expect_url
-            && let Err(e) = Regex::new(re)
+            && re.contains("(?")
+            && !re.contains("(?:")
+            && !re.contains("(?=")
+            && !re.contains("(?!")
+            && !re.contains("(?<")
         {
-            ctx.err(&aat, format!("expectUrl is not a valid regex: {e}"));
+            ctx.err(&aat, "expectUrl is a JavaScript regular expression; inline flags such as (?i) are not supported");
         }
         if let Some(w) = &a.wait
             && let Err(e) = w.parse()
@@ -587,18 +593,6 @@ fn check_call(ctx: &mut Ctx, step: &Step, at: &str, v: &BTreeSet<String>) {
             ctx.err(&format!("{at}.with"), format!("flow '{target}' requires input '{name}'"));
         }
     }
-    if !callee.flow.secrets.is_empty() {
-        let missing: Vec<&String> = callee.flow.secrets.iter().filter(|s| !ctx.secrets.contains(*s)).collect();
-        if !missing.is_empty() {
-            ctx.warn(
-                &format!("{at}.flow"),
-                format!(
-                    "flow '{target}' reads secrets this flow does not list ({}); they are resolved for the run either way",
-                    missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-                ),
-            );
-        }
-    }
 }
 
 fn check_demo(ctx: &mut Ctx, flow: &Flow, all: &[(&Step, String)]) {
@@ -633,6 +627,43 @@ fn check_demo(ctx: &mut Ctx, flow: &Flow, all: &[(&Step, String)]) {
     if let Some(cut) = &demo.cut {
         check_duration(ctx, "demo.cut.maxGap", &cut.max_gap);
         check_duration(ctx, "demo.cut.keep", &cut.keep);
+    }
+}
+
+fn check_services(ctx: &mut Ctx, flow: &Flow) {
+    let mut ids = BTreeSet::new();
+    let none = BTreeSet::new();
+    for svc in &flow.services {
+        let at = format!("services.{}", svc.id);
+        if !STEP_ID.is_match(&svc.id) && !FLOW_ID.is_match(&svc.id) {
+            ctx.err(&at, "service ids are lowercase letters, digits, - or _");
+        }
+        if !ids.insert(svc.id.as_str()) {
+            ctx.err(&at, "service id is used more than once");
+        }
+        if expr::has_template(&svc.run) {
+            ctx.err(&format!("{at}.run"), "pass values through env, not ${{ }}");
+        }
+        for (k, t) in &svc.env {
+            if !IDENT.is_match(k) {
+                ctx.err(&format!("{at}.env.{k}"), "environment variable names must be identifiers");
+            }
+            ctx.check_template(&format!("{at}.env.{k}"), t, WITH_SECRETS, &none);
+        }
+        match (&svc.ready.http, &svc.ready.log) {
+            (None, None) => ctx.err(&format!("{at}.ready"), "set ready.http, ready.log, or both"),
+            (http, log) => {
+                if let Some(u) = http {
+                    ctx.check_template(&format!("{at}.ready.http"), u, PLAIN, &none);
+                }
+                if let Some(re) = log
+                    && let Err(e) = Regex::new(re)
+                {
+                    ctx.err(&format!("{at}.ready.log"), format!("invalid regex: {e}"));
+                }
+            }
+        }
+        check_duration(ctx, &format!("{at}.ready.timeout"), &svc.ready.timeout);
     }
 }
 

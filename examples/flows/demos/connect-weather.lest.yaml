@@ -1,0 +1,29 @@
+apiVersion: lest/v1
+id: connect-weather
+name: Connect the weather service
+description: |
+  Records a walkthrough: a signed-in user opens the dashboard, connects the
+  SkyCast weather service through its consent popup, and sees the forecast.
+tags: [demo]
+environments:
+  local: { base_url: "http://127.0.0.1:4173" }
+defaultEnvironment: local
+resources: [sprout-demo-account]
+demo:
+  title: Water by the forecast
+  summary: Connect SkyCast in two clicks and Sprout starts watering by the weather.
+  beats:
+    - { marker: plants, label: The dashboard shows every plant }
+    - { marker: consent, label: SkyCast asks for permission }
+    - { marker: connected, label: The forecast appears }
+steps:
+  - id: sign_in
+    name: Sign in (off camera)
+    flow: sign-in
+  - id: record
+    name: Record the walkthrough
+    browser:
+      url: "${{ vars.base_url }}/app"
+      session: sprout
+      record: true
+      script: connect-weather.mjs

@@ -34,6 +34,8 @@ pub struct AttemptOutcome {
     pub outputs: BTreeMap<String, Json>,
     pub beats: Vec<Beat>,
     pub artifacts: Vec<Artifact>,
+    /// The videos a recorded browser step produced.
+    pub recording: Option<Vec<crate::browser::Video>>,
 }
 
 impl AttemptOutcome {

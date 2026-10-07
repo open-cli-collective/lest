@@ -117,6 +117,27 @@ async fn dispatch(cli: Cli, style: Style) -> Result<u8> {
     }
 }
 
+/// Waits for Ctrl-C, or SIGTERM or SIGHUP (a closed terminal, a CI job
+/// being stopped), which are treated the same way.
+async fn interrupted() -> bool {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (Ok(mut term), Ok(mut hup)) = (signal(SignalKind::terminate()), signal(SignalKind::hangup())) else {
+            return tokio::signal::ctrl_c().await.is_ok();
+        };
+        tokio::select! {
+            r = tokio::signal::ctrl_c() => r.is_ok(),
+            _ = term.recv() => true,
+            _ = hup.recv() => true,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.is_ok()
+    }
+}
+
 fn parse_inputs(raw: &[String]) -> Result<BTreeMap<String, String>> {
     let mut out = BTreeMap::new();
     for item in raw {
@@ -161,6 +182,21 @@ fn check_runnable(catalog: &Catalog, flow_id: &str, style: Style) -> Result<()> 
         eprintln!("{} {d}", style.red("✗"));
     }
     Err(fail(exit::USAGE, format!("{flow_id} has {} validation error(s)", errors.len())))
+}
+
+/// Browser steps run through the Node harness.
+fn browser_driver(
+    project: &Project,
+    roots: &StateRoots,
+    allow_origin: Option<String>,
+) -> Arc<dyn runner::BrowserDriver> {
+    let cfg = project.config.browser.clone().unwrap_or_default();
+    Arc::new(lest_core::browser::NodeBrowser {
+        node: cfg.node.unwrap_or_else(|| "node".to_string()),
+        harness_dir: roots.data_dir.join("harness"),
+        args: cfg.args,
+        allow_origin,
+    })
 }
 
 fn keyring() -> Arc<dyn Keyring> {
@@ -208,8 +244,13 @@ async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
             Some((old, step.clone()))
         }
     };
-    let engine =
-        Engine { project, catalog: Arc::new(catalog), store: store.clone(), keyring: keyring(), browser: None };
+    let engine = Engine {
+        browser: Some(browser_driver(&project, &ctx.roots, None)),
+        project,
+        catalog: Arc::new(catalog),
+        store: store.clone(),
+        keyring: keyring(),
+    };
     let req = RunRequest {
         flow_id: flow_id.clone(),
         environment: a.environment.clone(),
@@ -224,7 +265,7 @@ async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
         let cancel = cancel.clone();
         tokio::spawn(async move {
             let mut presses = 0;
-            while tokio::signal::ctrl_c().await.is_ok() {
+            while interrupted().await {
                 presses += 1;
                 match presses {
                     1 => {
@@ -237,7 +278,11 @@ async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
                         eprintln!("\nlest: skipping cleanup (Ctrl-C again to exit now)");
                         cancel.cleanup.cancel();
                     }
-                    _ => std::process::exit(exit::CANCELLED as i32),
+                    _ => {
+                        // A hard exit skips cleanup; still stop services.
+                        lest_core::services::kill_all();
+                        std::process::exit(exit::CANCELLED as i32)
+                    }
                 }
             }
         });
@@ -657,9 +702,43 @@ async fn cmd_doctor(ctx: &Ctx, style: Style) -> Result<u8> {
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string())
     };
-    match version("node", &["--version"]) {
-        Some(v) => row(Some(true), "node", v),
-        None => row(None, "node", "not found; browser steps need Node.js 18+".into()),
+    let node = ctx.project.config.browser.as_ref().and_then(|b| b.node.clone()).unwrap_or_else(|| "node".into());
+    match version(&node, &["--version"]) {
+        Some(v) => {
+            let major: u32 = v.trim_start_matches('v').split('.').next().and_then(|m| m.parse().ok()).unwrap_or(0);
+            if major >= 18 {
+                row(Some(true), "node", v);
+            } else {
+                row(None, "node", format!("{v}; browser steps need Node.js 18 or newer"));
+            }
+            // Playwright is loaded from the project, like the harness does.
+            let probe = std::process::Command::new(&node)
+                .args([
+                    "-e",
+                    "const r=require('module').createRequire(process.argv[1]+'/x.js');const p=r('playwright');const e=p.chromium.executablePath();process.stdout.write(p.chromium?(require('fs').existsSync(e)?'ok '+e:'nochrome '+e):'');",
+                ])
+                .arg(&ctx.project.root)
+                .output();
+            match probe.ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()) {
+                Some(out) if out.starts_with("ok ") => {
+                    row(Some(true), "playwright", "installed, Chromium present".into())
+                }
+                Some(out) if out.starts_with("nochrome") => row(
+                    None,
+                    "playwright",
+                    "installed, but Chromium is missing: run `npx playwright install chromium`".into(),
+                ),
+                _ => row(
+                    None,
+                    "playwright",
+                    format!(
+                        "not installed in {}; browser steps need `npm i -D playwright && npx playwright install chromium`",
+                        ctx.project.root.display()
+                    ),
+                ),
+            }
+        }
+        None => row(None, "node", format!("'{node}' not found; browser steps need Node.js 18 or newer")),
     }
     match version("ffmpeg", &["-version"]) {
         Some(v) => row(Some(true), "ffmpeg", v.split(" Copyright").next().unwrap_or(&v).to_string()),

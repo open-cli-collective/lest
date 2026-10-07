@@ -27,6 +27,7 @@ use crate::spec::{CleanupPolicy, Flow, Step, StepKind};
 use crate::store::{Store, new_run_id};
 use crate::tools::{self, Need};
 
+pub use artifacts::store_file as store_artifact;
 pub use steps::AttemptOutcome;
 
 /// Everything a run needs from its surroundings.
@@ -220,16 +221,9 @@ impl Frame<'_> {
     }
 }
 
-/// Named JSON values (inputs, vars).
-type Values = BTreeMap<String, Json>;
-
-/// Resolves the run's inputs and variables for a flow.
-fn resolve_inputs_and_vars(
-    flow: &Flow,
-    environment: Option<&str>,
-    given: &BTreeMap<String, String>,
-) -> Result<(Values, Values), String> {
-    let mut vars: BTreeMap<String, Json> = flow.vars.iter().map(|(k, v)| (k.clone(), v.to_json())).collect();
+/// A flow's vars with an environment applied.
+fn resolve_vars(flow: &Flow, environment: Option<&str>) -> Result<Values, String> {
+    let mut vars: Values = flow.vars.iter().map(|(k, v)| (k.clone(), v.to_json())).collect();
     if let Some(env) = environment {
         match flow.environments.get(env) {
             Some(block) => vars.extend(block.iter().map(|(k, v)| (k.clone(), v.to_json()))),
@@ -243,6 +237,19 @@ fn resolve_inputs_and_vars(
             None => {}
         }
     }
+    Ok(vars)
+}
+
+/// Named JSON values (inputs, vars).
+type Values = BTreeMap<String, Json>;
+
+/// Resolves the run's inputs and variables for a flow.
+fn resolve_inputs_and_vars(
+    flow: &Flow,
+    environment: Option<&str>,
+    given: &BTreeMap<String, String>,
+) -> Result<(Values, Values), String> {
+    let mut vars = resolve_vars(flow, environment)?;
     let mut inputs = BTreeMap::new();
     for input in &flow.inputs {
         let value = given.get(&input.name).cloned().or_else(|| input.default.as_ref().map(|d| d.as_env_string()));
@@ -418,6 +425,7 @@ pub async fn execute_with_id(
             steps: vec![],
             finally: vec![],
             cleanups: vec![],
+            services: vec![],
             resumed_from: None,
             demo: None,
         };
@@ -449,6 +457,7 @@ pub async fn execute_with_id(
         steps: vec![],
         finally: vec![],
         cleanups: vec![],
+        services: vec![],
         resumed_from: req.resume.as_ref().map(|(r, s)| ResumeInfo { run_id: r.run_id.clone(), step: s.clone() }),
         demo: None,
     };
@@ -601,6 +610,128 @@ pub async fn execute_with_id(
         }
     }
 
+    // A resume is checked before anything starts.
+    let mut resume_index = 0;
+    if let Some((old, from)) = &req.resume {
+        let problem = if old.flow_id != flow.id {
+            Some(format!("run {} is a run of {}, not {}", old.run_id, old.flow_id, flow.id))
+        } else if old.environment != environment {
+            Some(format!(
+                "run {} used environment {}; resume with the same environment",
+                old.run_id,
+                old.environment.as_deref().unwrap_or("(none)")
+            ))
+        } else if old.inputs != report.inputs {
+            Some(format!("run {} used different inputs; resume with the same inputs", old.run_id))
+        } else {
+            match flow.steps.iter().position(|s| &s.id == from || from.starts_with(&format!("{}/", s.id))) {
+                None => Some(format!("no top-level step '{from}' to resume from")),
+                Some(i) => {
+                    resume_index = i;
+                    flow.steps[..i].iter().find_map(|s| {
+                        let prev = old.steps.iter().find(|r| r.id == s.id)?;
+                        (prev.status.is_some_and(|st| st.is_failure()) && !s.continue_on_error).then(|| {
+                            format!("step {} failed in run {}; resume from {} or earlier", prev.id, old.run_id, prev.id)
+                        })
+                    })
+                }
+            }
+        };
+        if let Some(m) = problem {
+            return finish(engine, &emitter, fail(report, m), started);
+        }
+    }
+
+    // Services from every reachable flow, started once per id.
+    let mut running: Vec<crate::services::Running> = Vec::new();
+    let mut seen_services = std::collections::BTreeSet::new();
+    for f in &flows {
+        for svc in &f.flow.services {
+            if !seen_services.insert(svc.id.clone()) {
+                continue;
+            }
+            let values = if f.flow.id == flow.id {
+                resolve_inputs_and_vars(&f.flow, environment.as_deref(), &req.inputs)
+            } else {
+                // A called flow's inputs are not known until it is called:
+                // its services get its vars and environment only.
+                let env = environment.as_deref().or(f.flow.default_environment.as_deref());
+                resolve_vars(&f.flow, env).map(|v| (BTreeMap::new(), v))
+            };
+            let (s_inputs, s_vars) = match values {
+                Ok(v) => v,
+                Err(e) => {
+                    for r in running.iter_mut() {
+                        r.stop().await;
+                    }
+                    return finish(engine, &emitter, fail(report, format!("service {}: {e}", svc.id)), started);
+                }
+            };
+            let mut scope = Scope::new();
+            scope.set("inputs", Json::Object(s_inputs.clone().into_iter().collect()));
+            scope.set("vars", Json::Object(s_vars.clone().into_iter().collect()));
+            scope.set(
+                "secrets",
+                Json::Object(secrets.iter().map(|(k, v)| (k.clone(), Json::String(v.clone()))).collect()),
+            );
+            scope.set("run", json!({"environment": environment, "id": run_id}));
+            let mut vars_env: Vec<(String, String)> =
+                s_vars.iter().chain(s_inputs.iter()).map(|(k, v)| (k.clone(), expr::stringify(v))).collect();
+            vars_env.extend(tool_env.iter().cloned());
+            vars_env.push(("LEST_PROJECT_DIR".into(), engine.project.root.display().to_string()));
+            vars_env.push(("LEST_RUN_DIR".into(), run_dir.join("artifacts").display().to_string()));
+            let mut bad = None;
+            for (k, t) in &svc.env {
+                match expr::interpolate(t, &scope) {
+                    Ok(v) => vars_env.push((k.clone(), v)),
+                    Err(e) => bad = Some(format!("service {} env {k}: {e}", svc.id)),
+                }
+            }
+            let ready_url = match svc.ready.http.as_deref().map(|u| expr::interpolate(u, &scope)).transpose() {
+                Ok(u) => u,
+                Err(e) => {
+                    bad.get_or_insert(format!("service {} ready.http: {e}", svc.id));
+                    None
+                }
+            };
+            if let Some(e) = bad {
+                for r in running.iter_mut() {
+                    r.stop().await;
+                }
+                return finish(engine, &emitter, fail(report, e), started);
+            }
+            emitter.emit(EventBody::DemoProgress { message: format!("starting service {}", svc.id) });
+            let log_dir = run_dir.join("artifacts").join("services");
+            let launch = crate::services::Launch {
+                vars: vars_env,
+                remove: &env_remove,
+                redactor: &redactor,
+                flow_dir: f.dir(),
+                log_dir: &log_dir,
+            };
+            match crate::services::start(svc, ready_url, launch, &cancel.main).await {
+                Ok(r) => {
+                    report.services.push(crate::report::ServiceReport {
+                        id: r.id.clone(),
+                        reused: r.reused,
+                        log: (!r.reused).then(|| crate::catalog::rel_path(&run_dir, &r.log_path)),
+                    });
+                    running.push(r);
+                }
+                Err(e) => {
+                    for r in running.iter_mut() {
+                        r.stop().await;
+                    }
+                    let mut report = fail(report, e);
+                    if cancel.main.is_cancelled() {
+                        report.result = RunResult::Cancelled;
+                    }
+                    return finish(engine, &emitter, report, started);
+                }
+            }
+        }
+    }
+
     let ctx = Arc::new(RunCtx {
         run_id: run_id.clone(),
         run_dir: run_dir.clone(),
@@ -624,51 +755,13 @@ pub async fn execute_with_id(
     let frame = Frame { flow: lf, prefix: String::new(), inputs, vars, steps: Mutex::new(serde_json::Map::new()) };
 
     // Resume: earlier top-level steps take their results from the old run.
-    let mut resume_index = 0;
     let mut seeded = Vec::new();
-    if let Some((old, from)) = &req.resume {
-        let mismatch = if old.flow_id != flow.id {
-            Some(format!("run {} is a run of {}, not {}", old.run_id, old.flow_id, flow.id))
-        } else if old.environment != environment {
-            Some(format!(
-                "run {} used environment {}; resume with the same environment",
-                old.run_id,
-                old.environment.as_deref().unwrap_or("(none)")
-            ))
-        } else if old.inputs != report.inputs {
-            Some(format!("run {} used different inputs; resume with the same inputs", old.run_id))
-        } else {
-            None
-        };
-        if let Some(m) = mismatch {
-            return finish(engine, &emitter, fail(report, m), started);
-        }
-        match flow.steps.iter().position(|s| &s.id == from || from.starts_with(&format!("{}/", s.id))) {
-            Some(i) => {
-                resume_index = i;
-                for s in &flow.steps[..i] {
-                    let Some(prev) = old.steps.iter().find(|r| r.id == s.id) else { continue };
-                    if prev.status.is_some_and(|st| st.is_failure()) && !s.continue_on_error {
-                        let msg = format!(
-                            "step {} failed in run {}; resume from {} or earlier",
-                            prev.id, old.run_id, prev.id
-                        );
-                        return finish(engine, &emitter, fail(report, msg), started);
-                    }
-                    let restored = unredact_step(prev, &ctx.secrets);
-                    seed_step(&frame, &restored);
-                    emitter.emit(EventBody::StepFinished { step: Box::new(prev.clone()) });
-                    seeded.push(prev.clone());
-                }
-            }
-            None => {
-                return finish(
-                    engine,
-                    &emitter,
-                    fail(report, format!("no top-level step '{from}' to resume from")),
-                    started,
-                );
-            }
+    if let Some((old, _)) = &req.resume {
+        for s in &flow.steps[..resume_index] {
+            let Some(prev) = old.steps.iter().find(|r| r.id == s.id) else { continue };
+            seed_step(&frame, &unredact_step(prev, &ctx.secrets));
+            emitter.emit(EventBody::StepFinished { step: Box::new(prev.clone()) });
+            seeded.push(prev.clone());
         }
     }
 
@@ -691,6 +784,9 @@ pub async fn execute_with_id(
     };
 
     report.cleanups = runner.run_cleanups(report.result).await;
+    for r in running.iter_mut().rev() {
+        r.stop().await;
+    }
     report.warnings = ctx.warnings.lock().expect("lock").clone();
     finish(engine, &emitter, report, started)
 }
@@ -890,6 +986,7 @@ impl<'e> Runner<'e> {
     ) -> StepReport {
         r.finished_at = Some(now_rfc3339());
         r.headline = headline(&r);
+        r.tolerated = step.continue_on_error && r.status.is_some_and(|s| s.is_failure());
         let self_json = step_json(&r, outcome);
         if !step.artifacts.is_empty() && r.status != Some(StepStatus::Skipped) {
             let scope = frame.scope(&self.ctx).with("self", self_json.clone());
@@ -1298,7 +1395,7 @@ fn outcome_json(o: &AttemptOutcome, attempt: u32) -> Json {
 }
 
 /// Emits a redacted output line, capping how many lines one step streams.
-pub(crate) struct LineSink<'a> {
+pub struct LineSink<'a> {
     ctx: &'a RunCtx,
     step_id: String,
     sent: usize,
@@ -1307,10 +1404,10 @@ pub(crate) struct LineSink<'a> {
 const MAX_STREAMED_LINES: usize = 5000;
 
 impl<'a> LineSink<'a> {
-    pub(crate) fn new(ctx: &'a RunCtx, step_id: &str) -> Self {
+    pub fn new(ctx: &'a RunCtx, step_id: &str) -> Self {
         LineSink { ctx, step_id: step_id.to_string(), sent: 0 }
     }
-    pub(crate) fn line(&mut self, stream: Stream, line: String) {
+    pub fn line(&mut self, stream: Stream, line: String) {
         self.sent += 1;
         if self.sent > MAX_STREAMED_LINES {
             if self.sent == MAX_STREAMED_LINES + 1 {

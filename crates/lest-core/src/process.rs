@@ -203,9 +203,16 @@ async fn drain(
         };
         reader.consume(chunk.len());
         kept.lock().expect("lock").push(&chunk, cap);
-        for piece in chunk.split_inclusive(|b| *b == b'\n') {
+        for mut piece in chunk.split_inclusive(|b| *b == b'\n') {
+            // Never let a line grow past MAX_LINE, however the reads split.
+            while line.len() + piece.len() > MAX_LINE {
+                let room = MAX_LINE - line.len();
+                line.extend_from_slice(&piece[..room]);
+                send(&mut line);
+                piece = &piece[room..];
+            }
             line.extend_from_slice(piece);
-            if piece.ends_with(b"\n") || line.len() >= MAX_LINE {
+            if piece.ends_with(b"\n") || line.len() == MAX_LINE {
                 send(&mut line);
             }
         }

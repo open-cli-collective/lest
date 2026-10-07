@@ -62,11 +62,57 @@ pub struct Flow {
     /// Presents the flow as a recordable demo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub demo: Option<Demo>,
+    /// Long-running processes (a local dev server) started before the steps
+    /// and stopped after cleanup.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<Service>,
     pub steps: Vec<Step>,
     /// Steps that always run after `steps`, including after a failure or a
     /// cancel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub finally: Vec<Step>,
+}
+
+/// A process the run starts before its steps and stops at the end. A
+/// service with the same id in a called flow is started once.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Service {
+    /// Identifier, unique across the flows of a run.
+    pub id: String,
+    /// Command to start it (in `sh`), relative to the flow file.
+    pub run: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// Environment variables; values may contain `${{ }}` (vars, inputs,
+    /// secrets).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// When the service counts as started.
+    pub ready: Ready,
+    /// If the ready check already passes before starting, use the running
+    /// instance instead of starting another (default true).
+    #[serde(default = "yes")]
+    pub reuse: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Ready {
+    /// A URL that answers with a status below 400 once the service is up;
+    /// may contain `${{ }}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<String>,
+    /// A regex matched against the service's output lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log: Option<String>,
+    /// How long to wait (default 30s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<DurationSpec>,
 }
 
 /// A YAML scalar used as a variable value.

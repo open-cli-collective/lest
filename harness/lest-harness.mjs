@@ -257,9 +257,16 @@ async function main() {
     // frame the size of the main viewport.
     page.waitForLoadState("domcontentloaded").then(() => page.evaluate(() => [innerWidth, innerHeight])).then((s) => (info.size = s)).catch(() => {});
     current = page;
+    let last = "";
     const report = async () => {
       const id = await targetId(context, page);
-      if (id) emit({ type: "page", targetId: id, url: page.url(), role });
+      const key = `${id} ${page.url()}`;
+      // One event per page and address: navigation and tracking can both
+      // report the same state.
+      if (id && key !== last) {
+        last = key;
+        emit({ type: "page", targetId: id, url: page.url(), role });
+      }
     };
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) report();

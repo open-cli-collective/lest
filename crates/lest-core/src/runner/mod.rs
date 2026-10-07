@@ -27,7 +27,7 @@ use crate::spec::{CleanupPolicy, Flow, Step, StepKind};
 use crate::store::{Store, new_run_id};
 use crate::tools::{self, Need};
 
-pub use artifacts::store_file as store_artifact;
+pub use artifacts::{mime_for, mime_for_name, store_file as store_artifact};
 pub use steps::{AttemptOutcome, Recording};
 
 /// Everything a run needs from its surroundings.

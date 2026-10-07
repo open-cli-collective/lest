@@ -114,6 +114,7 @@ async fn dispatch(cli: Cli, style: Style) -> Result<u8> {
             Ok(0)
         }
         Command::Data { command } => cmd_data(&ctx, command),
+        Command::Ui(a) => cmd_ui(&ctx, a).await,
     }
 }
 
@@ -832,6 +833,34 @@ fn cmd_secrets(ctx: &Ctx, command: SecretsCommand) -> Result<u8> {
             }
         }
     }
+}
+
+async fn cmd_ui(ctx: &Ctx, a: UiArgs) -> Result<u8> {
+    let roots = ctx.roots.clone();
+    let project = ctx.project.clone();
+    let server = lest_server::bind(lest_server::Options {
+        project: ctx.project.clone(),
+        roots: ctx.roots.clone(),
+        port: a.port,
+        token: lest_server::new_token(),
+        keyring: keyring(),
+        browser: Arc::new(move |origin| browser_driver(&project, &roots, origin)),
+    })
+    .await?;
+    let url = server.url();
+    eprintln!("lest ui: {url}");
+    eprintln!("project: {}", ctx.project.root.display());
+    if !a.no_browser {
+        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        if std::process::Command::new(opener).arg(&url).status().is_err() {
+            eprintln!("open the address above in a browser");
+        }
+    }
+    tokio::select! {
+        r = server.serve() => r?,
+        _ = tokio::signal::ctrl_c() => {}
+    }
+    Ok(0)
 }
 
 fn cmd_data(ctx: &Ctx, command: DataCommand) -> Result<u8> {

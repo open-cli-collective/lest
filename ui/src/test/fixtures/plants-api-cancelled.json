@@ -1,0 +1,188 @@
+[
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 0,
+  "atMs": 1791378906589,
+  "kind": "runStarted",
+  "flowId": "plants-api",
+  "flowName": "Plants API",
+  "environment": "local",
+  "runDir": "/tmp/lest-data/runs/plants-api/20261007T131506Z-d7mf",
+  "steps": [
+   {
+    "id": "sign_in",
+    "name": "Sign in through the API",
+    "kind": "http"
+   },
+   {
+    "id": "add_plant",
+    "name": "Add a plant",
+    "kind": "http"
+   },
+   {
+    "id": "sensor_online",
+    "name": "Wait for the sensor to pair",
+    "kind": "http",
+    "notes": "A new plant's sensor reports \"pairing\" for its first few reads."
+   },
+   {
+    "id": "listed",
+    "name": "The plant is listed",
+    "kind": "run"
+   }
+  ],
+  "finally": [],
+  "tools": []
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 1,
+  "atMs": 1791378906629,
+  "kind": "demoProgress",
+  "message": "starting service sprout"
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 2,
+  "atMs": 1791378906838,
+  "kind": "stepStarted",
+  "stepId": "sign_in",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 3,
+  "atMs": 1791378906840,
+  "kind": "stepFinished",
+  "step": {
+   "id": "sign_in",
+   "name": "Sign in through the API",
+   "kind": "http",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:15:06.838983Z",
+   "finishedAt": "2026-10-07T13:15:06.840847Z",
+   "durationMs": 1,
+   "resolved": "POST http://127.0.0.1:4173/api/login",
+   "stdout": "{\"token\":\"9caa5222-b31d-4c29-8c9c-bd3a9bda9aa8\",\"user\":{\"id\":\"u-1\",\"email\":\"demo@example.com\",\"name\":\"Robin\"}}",
+   "httpStatus": 200,
+   "outputs": {
+    "token": "9caa5222-b31d-4c29-8c9c-bd3a9bda9aa8"
+   }
+  }
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 4,
+  "atMs": 1791378906840,
+  "kind": "stepStarted",
+  "stepId": "add_plant",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 5,
+  "atMs": 1791378906842,
+  "kind": "stepFinished",
+  "step": {
+   "id": "add_plant",
+   "name": "Add a plant",
+   "kind": "http",
+   "status": "passed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:15:06.840883Z",
+   "finishedAt": "2026-10-07T13:15:06.842427Z",
+   "durationMs": 1,
+   "resolved": "POST http://127.0.0.1:4173/api/plants",
+   "stdout": "{\"id\":\"p-4\",\"name\":\"Basil\",\"room\":\"Kitchen\",\"moisture\":55}",
+   "httpStatus": 201,
+   "outputs": {
+    "id": "p-4"
+   }
+  }
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 6,
+  "atMs": 1791378906842,
+  "kind": "stepStarted",
+  "stepId": "sensor_online",
+  "attempt": 1
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 7,
+  "atMs": 1791378906844,
+  "kind": "stepRetrying",
+  "stepId": "sensor_online",
+  "attempt": 1,
+  "maxAttempts": 6,
+  "reason": "`self.outputs.sensor == 'online'` is not true yet",
+  "nextAttemptInMs": 300
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 8,
+  "atMs": 1791378907091,
+  "kind": "stepFinished",
+  "step": {
+   "id": "sensor_online",
+   "name": "Wait for the sensor to pair",
+   "kind": "http",
+   "status": "failed",
+   "attempts": 1,
+   "startedAt": "2026-10-07T13:15:06.842796Z",
+   "finishedAt": "2026-10-07T13:15:07.09192Z",
+   "durationMs": 249,
+   "resolved": "GET http://127.0.0.1:4173/api/plants/p-4/status",
+   "stdout": "{\"id\":\"p-4\",\"sensor\":\"pairing\",\"polls\":1}",
+   "httpStatus": 200,
+   "outputs": {
+    "sensor": "pairing"
+   },
+   "error": "`self.outputs.sensor == 'online'` was still false after 1 attempt",
+   "headline": "`self.outputs.sensor == 'online'` was still false after 1 attempt",
+   "notes": "A new plant's sensor reports \"pairing\" for its first few reads."
+  }
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 9,
+  "atMs": 1791378907091,
+  "kind": "stepFinished",
+  "step": {
+   "id": "listed",
+   "name": "The plant is listed",
+   "kind": "run",
+   "status": "skipped",
+   "attempts": 0,
+   "durationMs": 0,
+   "error": "skipped: cancelled"
+  }
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 10,
+  "atMs": 1791378907092,
+  "kind": "cleanupStarted",
+  "stepId": "add_plant"
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 11,
+  "atMs": 1791378907111,
+  "kind": "cleanupFinished",
+  "stepId": "add_plant",
+  "status": "passed"
+ },
+ {
+  "runId": "20261007T131506Z-d7mf",
+  "seq": 12,
+  "atMs": 1791378907113,
+  "kind": "runFinished",
+  "result": "cancelled",
+  "durationMs": 523,
+  "error": null,
+  "reportPath": "/tmp/lest-data/runs/plants-api/20261007T131506Z-d7mf/report.json"
+ }
+]

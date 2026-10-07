@@ -1,28 +1,26 @@
 [package]
-name = "lest"
-description = "Run end-to-end flows against real systems and record demos from them"
+name = "lest-server"
+description = "Local HTTP API and UI server for Lest"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-[[bin]]
-name = "lest"
-path = "src/main.rs"
-
 [dependencies]
 anyhow.workspace = true
-clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml_ng.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+futures.workspace = true
+axum = { workspace = true, features = ["macros"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+rust-embed = "8"
+rand.workspace = true
 lest-core.workspace = true
-lest-server.workspace = true
-regex.workspace = true
-which.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+reqwest.workspace = true

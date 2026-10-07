@@ -48,6 +48,8 @@ pub enum Command {
         #[arg(value_enum, default_value_t = SchemaKind::Flow)]
         kind: SchemaKind,
     },
+    /// Open the UI.
+    Ui(UiArgs),
     /// Remove stored run data.
     Data {
         #[command(subcommand)]
@@ -87,6 +89,16 @@ pub struct RunArgs {
     /// Print only the final result line.
     #[arg(short = 'q', long)]
     pub quiet: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct UiArgs {
+    /// Port to listen on (default: any free port).
+    #[arg(long, default_value_t = 0)]
+    pub port: u16,
+    /// Print the address instead of opening a browser.
+    #[arg(long)]
+    pub no_browser: bool,
 }
 
 #[derive(Debug, Args)]

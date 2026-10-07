@@ -111,6 +111,7 @@ pub async fn start(
     let (seen_tx, mut seen_rx) = watch::channel(false);
     let file = tokio::fs::File::create(&log_path).await.map_err(|e| e.to_string())?;
     let file = std::sync::Arc::new(tokio::sync::Mutex::new(file));
+    let mut readers = Vec::new();
     for reader in [
         child.stdout.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
         child.stderr.take().map(|s| Box::new(s) as _),
@@ -121,22 +122,27 @@ pub async fn start(
         let file = file.clone();
         let re = log_re.clone();
         let tx = seen_tx.clone();
-        tokio::spawn(async move {
+        readers.push(tokio::spawn(async move {
             let mut lines = BufReader::new(reader).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let mut f = file.lock().await;
                 let _ = f.write_all(format!("{line}\n").as_bytes()).await;
+                let _ = f.flush().await;
                 if re.as_ref().is_some_and(|r| r.is_match(&line)) {
                     let _ = tx.send(true);
                 }
             }
-        });
+        }));
     }
 
     let timeout = svc.ready.timeout.as_ref().and_then(|d| d.parse().ok()).unwrap_or(Duration::from_secs(30));
     let started = Instant::now();
     loop {
         if let Ok(Some(status)) = child.try_wait() {
+            // Let the readers write the last lines before quoting them.
+            for r in readers {
+                let _ = tokio::time::timeout(Duration::from_secs(1), r).await;
+            }
             let tail = tail(&log_path, 5);
             return Err(format!(
                 "service {} exited ({}) before it was ready{}",

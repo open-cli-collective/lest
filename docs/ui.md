@@ -19,8 +19,10 @@ name. It collapses to icons; the choice is remembered in the browser.
 
 Every flow in the project as a card, grouped by folder. A card shows the last
 run's result as a dot (hollow when the flow never ran), the first line of the
-description, tags, and how long ago the last run started and how long it took.
-Search matches names, ids and tags; tag chips filter. Validation problems from
+description, its first two tags with a count of the rest, and how long ago the
+last run started and how long it took. Search matches names, ids and tags; tag
+chips filter. The row shows the twelve most used tags and any selected one,
+and expands to every tag. Validation problems from
 the flow files appear in a banner above the cards, and the affected cards carry
 a warning mark.
 

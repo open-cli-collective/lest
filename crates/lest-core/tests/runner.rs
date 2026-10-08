@@ -322,6 +322,48 @@ steps:
 }
 
 #[tokio::test]
+async fn a_called_flow_pins_tools_from_its_own_vars() {
+    let f = Fixture::new(&[
+        (
+            "suite.lest.yaml",
+            r#"
+apiVersion: lest/v1
+id: suite
+name: Suite
+tools: [sh]
+steps:
+  - id: before
+    run: test "$PIN" = none
+  - id: member
+    flow: member
+"#,
+        ),
+        (
+            "member.lest.yaml",
+            r#"
+apiVersion: lest/v1
+id: member
+name: Member
+environments:
+  dev: { tenant: acme }
+defaultEnvironment: dev
+tools: [sh]
+steps:
+  - id: pinned
+    run: test "$PIN" = acme
+"#,
+        ),
+    ]);
+    std::fs::write(
+        f.path().join("lest.yaml"),
+        "name: test\nflows: [flows]\ntools:\n  sh:\n    env:\n      PIN: \"${{ has(vars.tenant) ? vars.tenant : 'none' }}\"\n",
+    )
+    .unwrap();
+    let (r, _) = run(&f.engine(&[]), "suite", &[]).await;
+    assert_eq!(r.result, RunResult::Passed, "{r:#?}");
+}
+
+#[tokio::test]
 async fn called_flow_outputs_reach_caller() {
     let f = Fixture::new(&[
         (

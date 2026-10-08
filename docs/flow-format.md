@@ -377,6 +377,10 @@ to the run's environment through `env` rather than commands that rewrite the
 tool's shared configuration, because those would retarget every other process
 using the tool, including a person in another terminal.
 
+`env` values may use `vars`. A flow called by a `flow` step pins the tools it
+lists from its own `vars`, so a suite whose members target different accounts
+or tenants gives each member its own pins.
+
 ## Cleanup
 
 ```yaml

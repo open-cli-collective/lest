@@ -15,6 +15,8 @@ export function tagFilters(
 ): { shown: string[]; hidden: number } {
   const counts = new Map<string, number>();
   for (const tags of flowTags) for (const t of new Set(tags)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  // A selected tag no flow has any more stays, so its filter can be cleared.
+  for (const t of selected) if (!counts.has(t)) counts.set(t, 0);
   const all = [...counts.keys()].sort((a, b) => counts.get(b)! - counts.get(a)! || a.localeCompare(b));
   if (expanded || all.length <= limit) return { shown: all, hidden: 0 };
   const shown = all.filter((t, i) => i < limit || selected.includes(t));

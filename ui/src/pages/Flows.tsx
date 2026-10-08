@@ -140,7 +140,12 @@ export function FlowsPage() {
                   </button>
                 ))}
                 {(filters.hidden > 0 || allTagsShown) && (
-                  <button type="button" className="chip chip-more" onClick={() => setAllTagsShown(!allTagsShown)}>
+                  <button
+                    type="button"
+                    className="chip chip-more"
+                    aria-expanded={allTagsShown}
+                    onClick={() => setAllTagsShown(!allTagsShown)}
+                  >
                     {allTagsShown ? "Fewer tags" : `${filters.hidden} more`}
                   </button>
                 )}
@@ -208,7 +213,11 @@ function FlowCard({
             </span>
           ))}
           {flow.tags.length > CARD_TAG_LIMIT && (
-            <span className="chip chip-count" title={flow.tags.slice(CARD_TAG_LIMIT).join(", ")}>
+            <span
+              className="chip chip-count"
+              title={flow.tags.slice(CARD_TAG_LIMIT).join(", ")}
+              aria-label={`Also tagged ${flow.tags.slice(CARD_TAG_LIMIT).join(", ")}`}
+            >
               +{flow.tags.length - CARD_TAG_LIMIT}
             </span>
           )}

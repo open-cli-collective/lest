@@ -107,6 +107,9 @@ describe("tagFilters", () => {
   it("keeps a selected tag visible when folded", () => {
     expect(tagFilters(flows, ["zeta"], false, 2)).toEqual({ shown: ["api", "smoke", "zeta"], hidden: 2 });
   });
+  it("keeps a selected tag no flow has any more", () => {
+    expect(tagFilters(flows, ["gone"], false, 2).shown).toEqual(["api", "smoke", "gone"]);
+  });
   it("shows everything when expanded or under the limit", () => {
     expect(tagFilters(flows, [], true, 2).shown).toEqual(["api", "smoke", "slow", "ui", "zeta"]);
     expect(tagFilters(flows, [], false, 10).hidden).toBe(0);

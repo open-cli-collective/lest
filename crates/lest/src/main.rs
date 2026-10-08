@@ -580,7 +580,7 @@ async fn cmd_cleanup(ctx: &Ctx, a: CleanupArgs, style: Style) -> Result<u8> {
     let fallback_dir =
         project.root.join(&report.flow_path).parent().map(Path::to_path_buf).unwrap_or_else(|| project.root.clone());
     let kr = keyring();
-    let resolver = Resolver::new(project.secrets_config(), kr.as_ref());
+    let resolver = Resolver::new(&project, kr.as_ref());
     let marker = regex_redacted();
     let mut failed = 0;
     for c in report.cleanups.iter_mut().filter(left) {
@@ -854,7 +854,7 @@ fn cmd_secrets(ctx: &Ctx, command: SecretsCommand) -> Result<u8> {
                     needed.entry(s.clone()).or_default().push(f.flow.id.clone());
                 }
             }
-            let resolver = Resolver::new(ctx.project.secrets_config(), &kr);
+            let resolver = Resolver::new(&ctx.project, &kr);
             let rows: Vec<Vec<String>> = needed
                 .iter()
                 .map(|(name, flows)| {

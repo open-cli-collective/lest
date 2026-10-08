@@ -88,7 +88,7 @@ pub async fn send(project: &Project, keyring: &dyn Keyring, report: &RunReport) 
             continue;
         }
         let label = format!("notify[{i}]");
-        let resolver = Resolver::new(project.secrets_config(), keyring);
+        let resolver = Resolver::new(project, keyring);
         let secrets = match resolver.resolve_all(&t.secrets) {
             Ok(s) => s,
             Err(e) => {

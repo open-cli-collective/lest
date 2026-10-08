@@ -341,6 +341,10 @@ secrets:
     - command: { run: 'my-vault read "app/$LEST_SECRET_NAME"' }
 ```
 
+A `command` runs with `sh` in the project root, with the secret's name in
+`LEST_SECRET_NAME` and the root in `LEST_PROJECT_DIR`, so it can call a
+script kept in the project. It prints the value on stdout.
+
 Every resolved value is replaced with `[redacted:<name>]` in captured output,
 outputs, events and reports. Values shorter than four characters are not
 redacted, since they would match ordinary text.

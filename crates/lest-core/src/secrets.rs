@@ -4,9 +4,10 @@
 //! value is redacted from every captured stream and report field.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 
-use crate::project::{SecretBackend, SecretsConfig};
+use crate::project::{Project, SecretBackend, SecretsConfig};
 
 pub const KEYRING_SERVICE: &str = "lest";
 
@@ -95,13 +96,19 @@ type EnvLookup<'a> = Box<dyn Fn(&str) -> Option<String> + Send + Sync + 'a>;
 /// Resolves secret names through the configured backends, in order.
 pub struct Resolver<'a> {
     config: SecretsConfig,
+    /// The project root: where a command backend runs.
+    root: PathBuf,
     keyring: &'a dyn Keyring,
     env: EnvLookup<'a>,
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(config: SecretsConfig, keyring: &'a dyn Keyring) -> Self {
-        Resolver { config, keyring, env: Box::new(|k| std::env::var(k).ok()) }
+    pub fn new(project: &Project, keyring: &'a dyn Keyring) -> Self {
+        Self::with_config(project.secrets_config(), project.root.clone(), keyring)
+    }
+
+    fn with_config(config: SecretsConfig, root: PathBuf, keyring: &'a dyn Keyring) -> Self {
+        Resolver { config, root, keyring, env: Box::new(|k| std::env::var(k).ok()) }
     }
 
     /// Overrides environment lookup (tests).
@@ -131,7 +138,12 @@ impl<'a> Resolver<'a> {
                 SecretBackend::Command { command: c } => {
                     tried.push(format!("command `{}`", c.run));
                     let out = run_with_timeout(
-                        std::process::Command::new("sh").arg("-c").arg(&c.run).env("LEST_SECRET_NAME", name),
+                        std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(&c.run)
+                            .current_dir(&self.root)
+                            .env("LEST_PROJECT_DIR", &self.root)
+                            .env("LEST_SECRET_NAME", name),
                         std::time::Duration::from_secs(60),
                     )
                     .map_err(|e| format!("secret command for '{name}': {e}"))?;
@@ -288,12 +300,17 @@ mod tests {
             backends: vec![
                 SecretBackend::Env { env: EnvBackend::default() },
                 SecretBackend::Command {
-                    command: CommandBackend { run: "test \"$LEST_SECRET_NAME\" = via_cmd && echo from-command".into() },
+                    command: CommandBackend {
+                        run: "test -f marker && test \"$LEST_SECRET_NAME\" = via_cmd && echo from-command".into(),
+                    },
                 },
             ],
         };
         let kr = NoKeyring;
-        let r = Resolver::new(cfg, &kr).with_env(|k| (k == "LEST_SECRET_TOKEN").then(|| "from-env".to_string()));
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("marker"), "").unwrap();
+        let r = Resolver::with_config(cfg, dir.path().to_path_buf(), &kr)
+            .with_env(|k| (k == "LEST_SECRET_TOKEN").then(|| "from-env".to_string()));
         assert_eq!(r.resolve("token").unwrap(), ("from-env".into(), "env"));
         assert_eq!(r.resolve("via_cmd").unwrap(), ("from-command".into(), "command"));
         let err = r.resolve("absent").unwrap_err();

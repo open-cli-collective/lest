@@ -330,10 +330,9 @@ async fn a_called_flow_pins_tools_from_its_own_vars() {
 apiVersion: lest/v1
 id: suite
 name: Suite
-tools: [sh]
 steps:
   - id: before
-    run: test "$PIN" = none
+    run: test -z "${PIN:-}"
   - id: member
     flow: member
 "#,
@@ -351,12 +350,25 @@ tools: [sh]
 steps:
   - id: pinned
     run: test "$PIN" = acme
+  - id: nested
+    flow: nested
+"#,
+        ),
+        (
+            "nested.lest.yaml",
+            r#"
+apiVersion: lest/v1
+id: nested
+name: Nested
+steps:
+  - id: inherited
+    run: test "$PIN" = acme
 "#,
         ),
     ]);
     std::fs::write(
         f.path().join("lest.yaml"),
-        "name: test\nflows: [flows]\ntools:\n  sh:\n    env:\n      PIN: \"${{ has(vars.tenant) ? vars.tenant : 'none' }}\"\n",
+        "name: test\nflows: [flows]\ntools:\n  sh:\n    env:\n      PIN: \"${{ vars.tenant }}\"\n",
     )
     .unwrap();
     let (r, _) = run(&f.engine(&[]), "suite", &[]).await;

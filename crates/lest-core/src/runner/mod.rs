@@ -356,12 +356,14 @@ fn reachable<'a>(root: &'a LoadedFlow, catalog: &'a Catalog) -> Vec<&'a LoadedFl
 }
 
 /// The env pins of the named tools' profiles, from a flow's variables.
+/// `lenient` leaves out a pin that cannot be resolved instead of failing.
 fn pin_tools<'t>(
     project: &Project,
     tools: impl Iterator<Item = &'t str>,
     vars: &BTreeMap<String, Json>,
     environment: Option<&str>,
     run_id: &str,
+    lenient: bool,
 ) -> Result<Vec<(String, String)>, String> {
     let mut scope = Scope::new();
     scope.set("vars", Json::Object(vars.clone().into_iter().collect()));
@@ -370,8 +372,11 @@ fn pin_tools<'t>(
     for name in tools {
         if let Some(p) = project.config.tools.get(name) {
             for (k, tmpl) in &p.env {
-                let v = expr::interpolate(tmpl, &scope).map_err(|e| format!("tool {name} env {k}: {e}"))?;
-                out.push((k.clone(), v));
+                match expr::interpolate(tmpl, &scope) {
+                    Ok(v) => out.push((k.clone(), v)),
+                    Err(_) if lenient => {}
+                    Err(e) => return Err(format!("tool {name} env {k}: {e}")),
+                }
             }
         }
     }
@@ -613,13 +618,20 @@ async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: R
         Err(e) => return finish(engine, &emitter, fail(report, e), started),
     };
 
-    // Tool env pins, then preflight with those pins applied.
-    let tool_env =
-        match pin_tools(&engine.project, needs.iter().map(|n| n.name.as_str()), &vars, environment.as_deref(), &run_id)
-        {
-            Ok(e) => e,
-            Err(e) => return finish(engine, &emitter, fail(report, e), started),
-        };
+    // Tool env pins, then preflight with those pins applied. A tool only a
+    // called flow lists may pin from vars this flow does not have; that flow
+    // pins it from its own vars when it is called.
+    let own_tools: Vec<&str> = flow.tools.iter().map(|t| t.name()).collect();
+    let pins = pin_tools(&engine.project, own_tools.iter().copied(), &vars, environment.as_deref(), &run_id, false)
+        .and_then(|mut own| {
+            let rest = needs.iter().map(|n| n.name.as_str()).filter(|n| !own_tools.contains(n));
+            own.extend(pin_tools(&engine.project, rest, &vars, environment.as_deref(), &run_id, true)?);
+            Ok(own)
+        });
+    let tool_env = match pins {
+        Ok(e) => e,
+        Err(e) => return finish(engine, &emitter, fail(report, e), started),
+    };
     let env_remove = crate::secrets::secret_env_names(&engine.project.secrets_config());
     for need in &needs {
         let profile = engine.project.config.tools.get(&need.name);
@@ -729,6 +741,18 @@ async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: R
             let mut vars_env: Vec<(String, String)> =
                 s_vars.iter().chain(s_inputs.iter()).map(|(k, v)| (k.clone(), expr::stringify(v))).collect();
             vars_env.extend(tool_env.iter().cloned());
+            if f.flow.id != flow.id {
+                let own = f.flow.tools.iter().map(|t| t.name());
+                match pin_tools(&engine.project, own, &s_vars, environment.as_deref(), &run_id, false) {
+                    Ok(pins) => vars_env.extend(pins),
+                    Err(e) => {
+                        for r in running.iter_mut() {
+                            r.stop().await;
+                        }
+                        return finish(engine, &emitter, fail(report, format!("service {}: {e}", svc.id)), started);
+                    }
+                }
+            }
             vars_env.push(("LEST_PROJECT_DIR".into(), engine.project.root.display().to_string()));
             vars_env.push(("LEST_RUN_DIR".into(), run_dir.join("artifacts").display().to_string()));
             let mut bad = None;
@@ -1177,6 +1201,7 @@ impl<'e> Runner<'e> {
             &vars,
             self.ctx.environment.as_deref(),
             &self.ctx.run_id,
+            false,
         ) {
             Ok(e) => e,
             Err(e) => {

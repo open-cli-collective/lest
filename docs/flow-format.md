@@ -379,7 +379,9 @@ using the tool, including a person in another terminal.
 
 `env` values may use `vars`. A flow called by a `flow` step pins the tools it
 lists from its own `vars`, so a suite whose members target different accounts
-or tenants gives each member its own pins.
+or tenants gives each member its own pins. A pin the top-level flow cannot
+resolve for a tool only its callees list is left unset until a callee pins it.
+Preflight checks each tool once, with the top-level flow's pins.
 
 ## Cleanup
 

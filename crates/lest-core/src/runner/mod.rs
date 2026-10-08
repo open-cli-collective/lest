@@ -180,6 +180,9 @@ struct Frame<'a> {
     prefix: String,
     inputs: BTreeMap<String, Json>,
     vars: BTreeMap<String, Json>,
+    /// Tool env pins from this flow's own variables, over the run's: a called
+    /// flow targets the tenant or account its own `vars` name.
+    tool_env: Vec<(String, String)>,
     steps: Mutex<serde_json::Map<String, Json>>,
 }
 
@@ -211,6 +214,7 @@ impl Frame<'_> {
             env.push((k.clone(), expr::stringify(v)));
         }
         env.extend(run.tool_env.iter().cloned());
+        env.extend(self.tool_env.iter().cloned());
         env.push(("LEST_RUN_ID".into(), run.run_id.clone()));
         env.push(("LEST_RUN_DIR".into(), run.artifacts_dir().display().to_string()));
         env.push(("LEST_FLOW_ID".into(), self.flow.flow.id.clone()));
@@ -349,6 +353,34 @@ fn reachable<'a>(root: &'a LoadedFlow, catalog: &'a Catalog) -> Vec<&'a LoadedFl
         i += 1;
     }
     out
+}
+
+/// The env pins of the named tools' profiles, from a flow's variables.
+/// `lenient` leaves out a pin that cannot be resolved instead of failing.
+fn pin_tools<'t>(
+    project: &Project,
+    tools: impl Iterator<Item = &'t str>,
+    vars: &BTreeMap<String, Json>,
+    environment: Option<&str>,
+    run_id: &str,
+    lenient: bool,
+) -> Result<Vec<(String, String)>, String> {
+    let mut scope = Scope::new();
+    scope.set("vars", Json::Object(vars.clone().into_iter().collect()));
+    scope.set("run", json!({"environment": environment, "id": run_id}));
+    let mut out = Vec::new();
+    for name in tools {
+        if let Some(p) = project.config.tools.get(name) {
+            for (k, tmpl) in &p.env {
+                match expr::interpolate(tmpl, &scope) {
+                    Ok(v) => out.push((k.clone(), v)),
+                    Err(_) if lenient => {}
+                    Err(e) => return Err(format!("tool {name} env {k}: {e}")),
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Takes the resource locks a run needs, waiting while another run holds one.
@@ -586,30 +618,20 @@ async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: R
         Err(e) => return finish(engine, &emitter, fail(report, e), started),
     };
 
-    // Tool env pins, then preflight with those pins applied.
-    let mut tool_env = Vec::new();
-    {
-        let mut scope = Scope::new();
-        scope.set("vars", Json::Object(vars.clone().into_iter().collect()));
-        scope.set("run", json!({"environment": environment, "id": run_id}));
-        for need in &needs {
-            if let Some(p) = engine.project.config.tools.get(&need.name) {
-                for (k, tmpl) in &p.env {
-                    match expr::interpolate(tmpl, &scope) {
-                        Ok(v) => tool_env.push((k.clone(), v)),
-                        Err(e) => {
-                            return finish(
-                                engine,
-                                &emitter,
-                                fail(report, format!("tool {} env {k}: {e}", need.name)),
-                                started,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Tool env pins, then preflight with those pins applied. A tool only a
+    // called flow lists may pin from vars this flow does not have; that flow
+    // pins it from its own vars when it is called.
+    let own_tools: Vec<&str> = flow.tools.iter().map(|t| t.name()).collect();
+    let pins = pin_tools(&engine.project, own_tools.iter().copied(), &vars, environment.as_deref(), &run_id, false)
+        .and_then(|mut own| {
+            let rest = needs.iter().map(|n| n.name.as_str()).filter(|n| !own_tools.contains(n));
+            own.extend(pin_tools(&engine.project, rest, &vars, environment.as_deref(), &run_id, true)?);
+            Ok(own)
+        });
+    let tool_env = match pins {
+        Ok(e) => e,
+        Err(e) => return finish(engine, &emitter, fail(report, e), started),
+    };
     let env_remove = crate::secrets::secret_env_names(&engine.project.secrets_config());
     for need in &needs {
         let profile = engine.project.config.tools.get(&need.name);
@@ -719,6 +741,18 @@ async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: R
             let mut vars_env: Vec<(String, String)> =
                 s_vars.iter().chain(s_inputs.iter()).map(|(k, v)| (k.clone(), expr::stringify(v))).collect();
             vars_env.extend(tool_env.iter().cloned());
+            if f.flow.id != flow.id {
+                let own = f.flow.tools.iter().map(|t| t.name());
+                match pin_tools(&engine.project, own, &s_vars, environment.as_deref(), &run_id, false) {
+                    Ok(pins) => vars_env.extend(pins),
+                    Err(e) => {
+                        for r in running.iter_mut() {
+                            r.stop().await;
+                        }
+                        return finish(engine, &emitter, fail(report, format!("service {}: {e}", svc.id)), started);
+                    }
+                }
+            }
             vars_env.push(("LEST_PROJECT_DIR".into(), engine.project.root.display().to_string()));
             vars_env.push(("LEST_RUN_DIR".into(), run_dir.join("artifacts").display().to_string()));
             let mut bad = None;
@@ -794,7 +828,14 @@ async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: R
         demo: Mutex::new(None),
     });
 
-    let frame = Frame { flow: lf, prefix: String::new(), inputs, vars, steps: Mutex::new(serde_json::Map::new()) };
+    let frame = Frame {
+        flow: lf,
+        prefix: String::new(),
+        inputs,
+        vars,
+        tool_env: Vec::new(),
+        steps: Mutex::new(serde_json::Map::new()),
+    };
 
     // Resume: earlier top-level steps take their results from the old run.
     let mut seeded = Vec::new();
@@ -1154,11 +1195,27 @@ impl<'e> Runner<'e> {
                 return self.finish_step(frame, step, r, None);
             }
         };
+        let own = match pin_tools(
+            &self.ctx.project,
+            callee.flow.tools.iter().map(|t| t.name()),
+            &vars,
+            self.ctx.environment.as_deref(),
+            &self.ctx.run_id,
+            false,
+        ) {
+            Ok(e) => e,
+            Err(e) => {
+                r.status = Some(StepStatus::Errored);
+                r.error = Some(e);
+                return self.finish_step(frame, step, r, None);
+            }
+        };
         let child = Frame {
             flow: callee,
             prefix: format!("{}/", r.id),
             inputs,
             vars,
+            tool_env: frame.tool_env.iter().cloned().chain(own).collect(),
             steps: Mutex::new(serde_json::Map::new()),
         };
         let (mut reports, failed) = self.run_sequence(&child, &callee.flow.steps, cancel).await;

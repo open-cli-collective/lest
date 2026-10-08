@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildContext, rerunCommand } from "../lib/context";
 import { formatDuration, shellQuote, timeAgo } from "../lib/format";
 import { parseBlocks, parseInline, plainFirstLine } from "../lib/markdown";
+import { tagFilters } from "../lib/tags";
 import type { RunEvent, RunReport, StepReport } from "../types";
 import wrongPassword from "./fixtures/wrong-password.json";
 
@@ -95,5 +96,19 @@ describe("copy context", () => {
     expect(rerunCommand({ flowId: "plants-api", fromStep: "sensor_online" })).toBe(
       "lest run plants-api --from sensor_online",
     );
+  });
+});
+
+describe("tagFilters", () => {
+  const flows = [["api", "smoke"], ["api", "slow"], ["api", "smoke", "ui"], ["zeta"]];
+  it("orders by use, then name, and folds the rest", () => {
+    expect(tagFilters(flows, [], false, 2)).toEqual({ shown: ["api", "smoke"], hidden: 3 });
+  });
+  it("keeps a selected tag visible when folded", () => {
+    expect(tagFilters(flows, ["zeta"], false, 2)).toEqual({ shown: ["api", "smoke", "zeta"], hidden: 2 });
+  });
+  it("shows everything when expanded or under the limit", () => {
+    expect(tagFilters(flows, [], true, 2).shown).toEqual(["api", "smoke", "slow", "ui", "zeta"]);
+    expect(tagFilters(flows, [], false, 10).hidden).toBe(0);
   });
 });

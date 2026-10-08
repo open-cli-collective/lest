@@ -560,7 +560,7 @@ async fn run_flow(engine: &Engine, req: RunRequest, emitter: &Emitter, cancel: R
     let mut secret_names: Vec<String> = flows.iter().flat_map(|f| f.flow.secrets.iter().cloned()).collect();
     secret_names.sort();
     secret_names.dedup();
-    let resolver = Resolver::new(engine.project.secrets_config(), engine.keyring.as_ref());
+    let resolver = Resolver::new(&engine.project, engine.keyring.as_ref());
     let secrets = match resolver.resolve_all(&secret_names) {
         Ok(s) => s,
         Err(e) => return finish(engine, &emitter, fail(report, e), started),

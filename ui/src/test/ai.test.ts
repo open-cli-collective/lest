@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentConfigured, aiStatusLine, explainSlot, providerOptions } from "../lib/ai";
+import { agentConfigured, aiStatusLine, explainSlot, modelChoices, providerOptions } from "../lib/ai";
 import type { AiConfig, AiStatus } from "../types";
 
 const headline = 'Expected the dashboard, but the page shows "Wrong email or password".';
@@ -108,5 +108,14 @@ describe("AI settings", () => {
     expect(agentConfigured(null, undefined)).toBe(false);
     expect(agentConfigured(on, null)).toBe(false);
     expect(agentConfigured(off, "cd '/p' && agent 'go'")).toBe(true);
+  });
+});
+
+describe("model choices", () => {
+  it("offers the CLI's default first and nothing for providers without a model", () => {
+    expect(modelChoices("claude")?.map((m) => m.value)).toEqual(["", "sonnet", "opus", "fable"]);
+    expect(modelChoices("codex")?.[0]).toEqual({ value: "", label: "Codex default" });
+    expect(modelChoices("command")).toBeNull();
+    expect(modelChoices(null)).toBeNull();
   });
 });

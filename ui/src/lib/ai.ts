@@ -3,7 +3,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../api";
-import type { AiConfig, AiStatus, Explanation, SettingsResponse } from "../types";
+import type { AiConfig, AiProvider, AiStatus, Explanation, SettingsResponse } from "../types";
 
 // Settings, fetched once per page load and replaced on every save.
 
@@ -144,6 +144,31 @@ export function providerOptions(ai: AiConfig, status: AiStatus): ProviderOption[
     ...clis.map((c) => ({ id: c, label: c })),
     { id: "command", label: "Custom command" },
   ];
+}
+
+export interface ModelChoice {
+  /** Passed as the model; empty means the CLI's default. */
+  value: string;
+  label: string;
+}
+
+/** The models offered for an agent CLI, its default first, or null when
+ * the provider takes no model (off, or a custom command). Names are the
+ * aliases each CLI accepts; any other name can still be typed. */
+export function modelChoices(kind: AiProvider | null | undefined): ModelChoice[] | null {
+  switch (kind) {
+    case "claude":
+      return [
+        { value: "", label: "Haiku (default)" },
+        { value: "sonnet", label: "Sonnet" },
+        { value: "opus", label: "Opus" },
+        { value: "fable", label: "Fable" },
+      ];
+    case "codex":
+      return [{ value: "", label: "Codex default" }];
+    default:
+      return null;
+  }
 }
 
 /** Whether the step menu offers the agent items. */

@@ -1268,7 +1268,7 @@ impl<'e> Runner<'e> {
             if let Some(until) = retry.and_then(|r| r.until.as_ref()) {
                 if !outcome.passed && !outcome.cancelled {
                     // The attempt itself failed (exit code, expect): retry.
-                    retry_reason = Some(outcome.error.clone().unwrap_or_else(|| "attempt failed".into()));
+                    retry_reason = Some(attempt_reason(step.kind(), &outcome));
                 } else if !outcome.cancelled {
                     match expr::eval_bool(until, &self_scope) {
                         Ok(true) => {
@@ -1291,7 +1291,7 @@ impl<'e> Runner<'e> {
                     }
                 }
             } else if !outcome.passed && !outcome.cancelled {
-                retry_reason = Some(outcome.error.clone().unwrap_or_else(|| "attempt failed".into()));
+                retry_reason = Some(attempt_reason(step.kind(), &outcome));
             }
 
             let done = outcome.passed || outcome.cancelled || attempt == max || retry_reason.is_none();
@@ -1565,4 +1565,20 @@ impl<'a> LineSink<'a> {
         };
         self.ctx.emitter.emit(EventBody::StepOutput { step_id: self.step_id.clone(), stream, line });
     }
+}
+
+/// Why a failed attempt failed, in the words the step's headline would use.
+fn attempt_reason(kind: StepKind, o: &steps::AttemptOutcome) -> String {
+    let probe = StepReport {
+        kind: Some(kind),
+        status: Some(if o.errored { StepStatus::Errored } else { StepStatus::Failed }),
+        error: o.error.clone(),
+        exit_code: o.exit_code,
+        http_status: o.http_status,
+        resolved: o.resolved.clone(),
+        stdout: o.stdout.clone(),
+        stderr: o.stderr.clone(),
+        ..Default::default()
+    };
+    headline(&probe).unwrap_or_else(|| "failed".into())
 }

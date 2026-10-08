@@ -196,6 +196,31 @@ steps:
 }
 
 #[tokio::test]
+async fn a_failed_attempt_says_why_it_is_retried() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: retry-why
+name: Retry why
+steps:
+  - id: poll
+    run: 'echo "no match yet" >&2; exit 4'
+    retry: { attempts: 2, delay: 10ms }
+"#,
+    )]);
+    let (_, events) = run(&f.engine(&[]), "retry-why", &[]).await;
+    let reason = events
+        .iter()
+        .find_map(|e| match &e.body {
+            EventBody::StepRetrying { reason, .. } => Some(reason.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(reason, "exited 4: no match yet");
+}
+
+#[tokio::test]
 async fn http_step_with_expect_and_outputs() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

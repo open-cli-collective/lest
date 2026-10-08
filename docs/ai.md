@@ -36,7 +36,7 @@ In the UI: Settings, AI. From the CLI:
 lest config set ai.provider auto        # the first agent CLI found on PATH
 lest config set ai.provider command     # any program: prompt on stdin, text on stdout
 lest config set ai.command 'my-llm --quiet'
-lest config set ai.model small-model    # optional, passed to agent CLIs
+lest config set ai.model sonnet         # optional, passed to agent CLIs
 lest config set ai.agent 'my-agent {prompt}'   # what Open in agent runs
 lest config set ai.dailyLimit 50
 lest config show
@@ -48,6 +48,12 @@ lest config show
 | `auto` | The first supported agent CLI on PATH, else none. |
 | a supported agent CLI | That CLI, headless, in an empty temporary directory, for one answer. CLIs that can turn tools off run with no tools, no MCP servers and no user customizations; a CLI that cannot runs in its read-only sandbox without the user's config or rules, so it can still read files to answer. |
 | `command` | Any program that reads the prompt on stdin and prints the answer. Labeled by the program's name. |
+
+The model defaults to the CLI's own small model. In Settings, Model lists
+the aliases the resolved CLI accepts (for `claude`: Haiku, the default,
+Sonnet, Opus and Fable), and Other takes any name the CLI understands. A
+custom command receives no model, so the row is hidden for it. Switching
+provider resets the model to the new CLI's default.
 
 Every call, writing the prompt included, is stopped after 90 seconds, and
 the provider's whole process group is killed. Prompts are cut at 48 KB. The

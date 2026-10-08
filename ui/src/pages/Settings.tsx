@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconDisplay, IconMoon, IconSun } from "../components/icons";
 import { CopyButton } from "../components/ui";
-import { aiStatusLine, providerOptions, saveAi, useAiSettings } from "../lib/ai";
+import { aiStatusLine, modelChoices, providerOptions, saveAi, useAiSettings } from "../lib/ai";
 import { readTheme, saveTheme, useProject, type Theme } from "../lib/project";
 import type { AiConfig, SettingsResponse } from "../types";
 
@@ -79,6 +79,7 @@ export function SettingsPage() {
 }
 
 const TEXT_SAVE_DELAY_MS = 600;
+const OTHER_MODEL = "__other__";
 
 function AiSection() {
   const settings = useAiSettings();
@@ -98,6 +99,7 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
   const [limitText, setLimitText] = useState(settings.ai.dailyLimit ? String(settings.ai.dailyLimit) : "");
   const [saved, setSaved] = useState<"" | "saving" | "saved">("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [otherModel, setOtherModel] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<AiConfig | null>(null);
   const latest = useRef(ai);
@@ -140,6 +142,11 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
 
   const status = settings.status;
   const options = providerOptions(ai, status);
+  // The model list follows the CLI the provider resolved to, so Automatic
+  // offers the models of whichever CLI it found.
+  const models = ai.provider === status.configured ? modelChoices(status.resolved?.kind) : null;
+  const knownModel = models?.some((m) => m.value === (ai.model ?? "")) ?? false;
+  const showOther = otherModel || !knownModel;
   return (
     <>
       <div className="settings-row">
@@ -157,7 +164,12 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
               type="button"
               role="radio"
               aria-checked={ai.provider === o.id}
-              onClick={() => change({ provider: o.id }, false)}
+              onClick={() => {
+                if (o.id === ai.provider) return;
+                // A model name belongs to one CLI; another provider starts at its default.
+                setOtherModel(false);
+                change({ provider: o.id, model: undefined }, false);
+              }}
             >
               {o.label}
             </button>
@@ -182,22 +194,48 @@ function AiForm({ settings }: { settings: SettingsResponse }) {
           />
         </div>
       )}
-      <div className="settings-row">
-        <div>
-          <label className="label" htmlFor="ai-model">
-            Model
-          </label>
-          <div className="hint">Passed to the agent CLI; a custom command does not receive it.</div>
+      {models && (
+        <div className="settings-row">
+          <div>
+            <label className="label" htmlFor="ai-model">
+              Model
+            </label>
+            <div className="hint">
+              Which model {status.resolved?.label} answers with. Larger models explain better, take longer and cost more.
+            </div>
+          </div>
+          <div className="model-pick">
+            <select
+              id="ai-model"
+              className="select"
+              value={showOther ? OTHER_MODEL : (ai.model ?? "")}
+              onChange={(e) => {
+                const other = e.target.value === OTHER_MODEL;
+                setOtherModel(other);
+                if (!other) change({ model: e.target.value || undefined }, false);
+              }}
+            >
+              {models.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+              <option value={OTHER_MODEL}>Other…</option>
+            </select>
+            {showOther && (
+              <input
+                className="input mono"
+                aria-label="Model name"
+                value={ai.model ?? ""}
+                placeholder="model name"
+                spellCheck={false}
+                autoFocus={otherModel}
+                onChange={(e) => change({ model: e.target.value }, true)}
+              />
+            )}
+          </div>
         </div>
-        <input
-          id="ai-model"
-          className="input"
-          value={ai.model ?? ""}
-          placeholder="the provider's small default"
-          spellCheck={false}
-          onChange={(e) => change({ model: e.target.value }, true)}
-        />
-      </div>
+      )}
       <div className="settings-row">
         <div>
           <label className="label" htmlFor="ai-agent">

@@ -2130,6 +2130,17 @@ table.runs tr.running td {
 .settings-row .seg {
   flex-shrink: 0;
 }
+.model-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  flex-shrink: 0;
+}
+.model-pick .select,
+.settings-row .model-pick .input {
+  width: 100%;
+}
 .settings-status {
   display: flex;
   align-items: center;

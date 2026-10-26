@@ -115,7 +115,7 @@ pub struct RunArgs {
 pub struct RunRef {
     /// Run id or unique prefix.
     pub run: Option<String>,
-    /// The newest run of this flow instead of a run id.
+    /// The newest finished run of this flow instead of a run id.
     #[arg(long, value_name = "FLOW")]
     pub flow: Option<String>,
 }

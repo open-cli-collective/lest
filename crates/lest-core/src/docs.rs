@@ -15,7 +15,7 @@ demos from them. Use this guide to write, run and fix flows.
    `lest run <id> --from <step>`.
 5. Read results: `lest runs list`, `lest runs get <run>`, or the full report
    with `lest runs get <run> -o report.json`. Commands that take a run also
-   take `--flow <id>` for that flow's newest run.
+   take `--flow <id>` for that flow's newest finished run.
 6. Explain a failure: `lest explain <run>` and `lest context <run>`.
 
 ## Rules that matter

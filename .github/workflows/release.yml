@@ -101,6 +101,7 @@ jobs:
         env:
           LEST_VERSION: ${{ needs.version.outputs.version }}
           TARGET: ${{ matrix.target }}
+          CARGO_PROFILE_RELEASE_STRIP: symbols
         run: |
           set -euo pipefail
           export "CC_${TARGET//-/_}=musl-gcc"

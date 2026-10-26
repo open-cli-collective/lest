@@ -49,8 +49,9 @@ caches it, and puts `lest` on `PATH`.
 | `working-directory` | `.` | The flows project. |
 | `github-token` | `github.token` | Reads the release. |
 
-The `version` output is the installed version. On other platforms, install
-from source (see the README).
+The `version` output is the installed version. The action downloads with the
+`gh` CLI, which GitHub-hosted runners include; a self-hosted runner needs it
+installed. On other platforms, install from source (see the README).
 
 ## Choosing what to run
 

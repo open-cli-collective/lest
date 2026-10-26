@@ -109,10 +109,21 @@ pub struct RunArgs {
     pub quiet: bool,
 }
 
+/// A run given by id, or the newest run of a flow.
+#[derive(Debug, Args)]
+#[group(required = true, multiple = false)]
+pub struct RunRef {
+    /// Run id or unique prefix.
+    pub run: Option<String>,
+    /// The newest finished run of this flow instead of a run id.
+    #[arg(long, value_name = "FLOW")]
+    pub flow: Option<String>,
+}
+
 #[derive(Debug, Args)]
 pub struct ExplainArgs {
-    /// Run id or unique prefix.
-    pub run: String,
+    #[command(flatten)]
+    pub run: RunRef,
     /// The step (default: the first failed step).
     #[arg(long)]
     pub step: Option<String>,
@@ -188,8 +199,8 @@ pub enum RunsCommand {
     },
     /// Show one run.
     Get {
-        /// Run id or unique prefix.
-        run: String,
+        #[command(flatten)]
+        run: RunRef,
         /// Write the JSON report to this path.
         #[arg(short = 'o', long, value_name = "PATH")]
         output: Option<PathBuf>,
@@ -198,8 +209,8 @@ pub enum RunsCommand {
 
 #[derive(Debug, Args)]
 pub struct CleanupArgs {
-    /// Run id or unique prefix.
-    pub run: String,
+    #[command(flatten)]
+    pub run: RunRef,
     /// Print the commands without running them.
     #[arg(long)]
     pub dry_run: bool,
@@ -220,8 +231,8 @@ pub struct AffectedArgs {
 
 #[derive(Debug, Args)]
 pub struct BundleArgs {
-    /// Run id or unique prefix.
-    pub run: String,
+    #[command(flatten)]
+    pub run: RunRef,
     /// Where to write the zip (default: lest-<flow>-<run>.zip).
     #[arg(short = 'o', long, value_name = "PATH")]
     pub output: Option<PathBuf>,
@@ -288,4 +299,23 @@ pub enum SchemaKind {
     Flow,
     Project,
     Report,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("lest").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn a_run_is_named_by_id_or_by_flow() {
+        let Some(Command::Bundle(b)) = parse(&["bundle", "--flow", "hello"]).unwrap().command else { panic!() };
+        assert_eq!((b.run.run, b.run.flow.as_deref()), (None, Some("hello")));
+        let Some(Command::Cleanup(c)) = parse(&["cleanup", "20260101T000000Z"]).unwrap().command else { panic!() };
+        assert_eq!(c.run.run.as_deref(), Some("20260101T000000Z"));
+        assert!(parse(&["runs", "get"]).is_err(), "a run or --flow is required");
+        assert!(parse(&["explain", "r1", "--flow", "hello"]).is_err(), "not both");
+    }
 }

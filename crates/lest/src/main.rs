@@ -503,7 +503,7 @@ fn cmd_runs(ctx: &Ctx, command: RunsCommand, style: Style) -> Result<u8> {
             Ok(0)
         }
         RunsCommand::Get { run, output } => {
-            let r = store.find(&run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+            let r = find_run(&store, &run)?;
             if let Some(out) = output {
                 std::fs::write(&out, serde_json::to_vec_pretty(&r)?)?;
                 eprintln!("wrote {}", out.display());
@@ -564,7 +564,7 @@ fn confirm(question: &str, force: bool) -> Result<bool> {
 
 async fn cmd_cleanup(ctx: &Ctx, a: CleanupArgs, style: Style) -> Result<u8> {
     let store = ctx.store();
-    let mut report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let mut report = find_run(&store, &a.run)?;
     let left =
         |c: &&mut lest_core::report::CleanupReport| matches!(c.status, CleanupStatus::NotRun | CleanupStatus::Failed);
     let count = report.cleanups.iter_mut().filter(left).count();
@@ -661,9 +661,19 @@ fn cmd_affected(ctx: &Ctx, a: AffectedArgs) -> Result<u8> {
     Ok(0)
 }
 
+/// The run a command names: by id or unique prefix, or the newest run of a
+/// flow.
+fn find_run(store: &Store, r: &RunRef) -> Result<lest_core::report::RunReport> {
+    match (&r.run, &r.flow) {
+        (_, Some(flow)) => store.latest(flow).ok_or_else(|| fail(exit::NOT_FOUND, format!("no runs of flow '{flow}'"))),
+        (Some(run), None) => store.find(run).map_err(|e| fail(exit::NOT_FOUND, e.to_string())),
+        (None, None) => Err(fail(exit::USAGE, "give a run id or --flow")),
+    }
+}
+
 fn cmd_bundle(ctx: &Ctx, a: BundleArgs) -> Result<u8> {
     let store = ctx.store();
-    let report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let report = find_run(&store, &a.run)?;
     let out = a.output.unwrap_or_else(|| PathBuf::from(format!("lest-{}-{}.zip", report.flow_id, report.run_id)));
     let manifest = lest_core::bundle::bundle(&store.run_dir(&report.flow_id, &report.run_id), &report, &out)
         .map_err(|e| fail(exit::ERRORED, e))?;
@@ -893,7 +903,7 @@ fn user_config(ctx: &Ctx) -> Result<lest_core::ai::UserConfig> {
 }
 
 fn cmd_explain(ctx: &Ctx, a: ExplainArgs, context_only: bool) -> Result<u8> {
-    let report = ctx.store().find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let report = find_run(&ctx.store(), &a.run)?;
     let step = match &a.step {
         Some(id) => report
             .find_step(id)

@@ -448,7 +448,8 @@ variables plus `cleanup.env`) and its directory are stored in the report,
 with secret values redacted. `lest cleanup <run>` replays the cleanups that
 did not run or failed, from the report rather than from a file that may have
 changed, resolves redacted secrets again, and records the outcome so a second
-replay does not repeat them.
+replay does not repeat them. `lest cleanup --flow <id>` replays the newest
+run of a flow.
 `on-failure` keeps the state after a pass for inspection; `manual` only
 records it.
 

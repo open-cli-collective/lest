@@ -61,6 +61,16 @@ flows exits with the worst: 130 over 3 over 1 over 0.
   project, flows, data directory, Node, ffmpeg, the keyring tool and every
   tool profile, and exits non-zero when something required is missing.
 - **CI runs on Linux only.** macOS and Windows builds are not exercised in CI.
+- **Releases ship Linux binaries only**, without GoReleaser or package
+  channels. Lest is a Rust binary, and the shared release workflow builds Go
+  on macOS runners. `.github/workflows/release.yml` builds static (musl)
+  `x86_64` and `arm64` binaries with the UI embedded, and publishes them with
+  `checksums.txt` when a tag `v<MAJOR.MINOR>.<patch>` is pushed, with
+  `MAJOR.MINOR` from `version.txt`. The build stamps the version from the tag
+  (`LEST_VERSION`). Running the workflow by hand with an existing tag
+  publishes that release again, replacing its files. A pull request that
+  changes the release files builds without publishing. Tags are pushed by
+  hand; there is no auto-release yet.
 - **Secrets** go through the platform keyring's own CLI (`security` on macOS,
   `secret-tool` on Linux) so the binary links no keyring library; the `env`
   and `command` backends cover CI and password managers.

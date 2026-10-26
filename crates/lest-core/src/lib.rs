@@ -1,5 +1,12 @@
 //! Lest core: the flow format, validation, the runner and run reports.
 
+/// The version this binary reports: `LEST_VERSION` at build time (release
+/// builds set it from the tag), else the crate version.
+pub const VERSION: &str = match option_env!("LEST_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 pub mod affected;
 pub mod ai;
 pub mod browser;

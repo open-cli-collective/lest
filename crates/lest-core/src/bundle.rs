@@ -100,7 +100,7 @@ fn write_zip(run_dir: &Path, report: &RunReport, out: &Path) -> Result<Manifest,
         environment: report.environment.clone(),
         started_at: report.started_at.clone(),
         duration_ms: report.duration_ms,
-        lest_version: env!("CARGO_PKG_VERSION").to_string(),
+        lest_version: crate::VERSION.to_string(),
         files: Vec::new(),
         missing: Vec::new(),
     };

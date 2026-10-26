@@ -94,7 +94,7 @@ async fn state(State(s): State<Arc<AppState>>) -> Json<StateResponse> {
     let live_runs = s.runs.lock().expect("lock").iter().filter(|(_, r)| !r.done).map(|(k, _)| k.clone()).collect();
     Json(StateResponse {
         project: ProjectInfo { name: p.name(), root: p.root.display().to_string(), has_config: p.has_config },
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: lest_core::VERSION.to_string(),
         live_runs,
     })
 }

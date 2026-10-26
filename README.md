@@ -33,11 +33,31 @@ passed hello 11ms 20261007T123002Z-vhyf
 
 ## Install
 
-From source (Rust stable):
+Linux (x86_64 and arm64): download a static binary from the
+[releases](https://github.com/open-cli-collective/lest/releases) and check it
+against the release's `checksums.txt`:
+
+```bash
+tag=v0.1.0   # a release tag
+arch=amd64   # or arm64
+curl -fsSLO "https://github.com/open-cli-collective/lest/releases/download/$tag/lest_${tag}_linux_${arch}.tar.gz"
+curl -fsSLO "https://github.com/open-cli-collective/lest/releases/download/$tag/checksums.txt"
+sha256sum --check --ignore-missing checksums.txt
+tar -xzf "lest_${tag}_linux_${arch}.tar.gz"
+sudo install "lest_${tag}_linux_${arch}/lest" /usr/local/bin/
+```
+
+In GitHub Actions, use the `open-cli-collective/lest` action ([Running Lest
+in CI](docs/ci.md)).
+
+From source (Rust stable, any platform):
 
 ```bash
 cargo install --git https://github.com/open-cli-collective/lest --locked lest
 ```
+
+A source install embeds the UI only when `ui/` is built first: clone the
+repository and run `make install`. Release binaries include it.
 
 ## Quick start
 

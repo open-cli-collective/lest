@@ -134,7 +134,7 @@ pub struct HostInfo {
 impl HostInfo {
     pub fn current() -> Self {
         HostInfo {
-            lest_version: env!("CARGO_PKG_VERSION").to_string(),
+            lest_version: crate::VERSION.to_string(),
             os: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
         }

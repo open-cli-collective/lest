@@ -26,7 +26,8 @@ demos from them. Use this guide to write, run and fix flows.
 - Secrets: list them under `secrets:` and use `${{ secrets.x }}` only in
   `env:`, `http`, browser values and `cleanup.env`.
 - Poll with `retry: {attempts, delay, until}`; do not lengthen waits to hide
-  slowness. A slow or failing step is information: find out why.
+  slowness. A slow or failing step is information: find out why. Add
+  `on: until` when a failed call must not be repeated.
 - Register cleanup on the step that creates something (`cleanup:`).
 - Never weaken an assertion to make a flow pass when it caught a real problem.
 

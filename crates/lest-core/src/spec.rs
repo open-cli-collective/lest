@@ -161,6 +161,10 @@ pub struct Input {
     /// A run fails before any step when a required input has no value.
     #[serde(default)]
     pub required: bool,
+    /// Kept out of the way in the UI's run form, behind "More options".
+    /// The CLI's `--input` sets it like any other input.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub advanced: bool,
     /// Restricts the value to one of these. A choice can set further
     /// variables with `sets`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -279,6 +283,10 @@ pub struct Step {
     /// Files this step produces, copied into the run's artifacts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<ArtifactSpec>,
+    /// Named values and links to show with the step's result, evaluated
+    /// after it runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub facts: Vec<FactSpec>,
     /// A command that undoes this step, run after the flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleanup: Option<Cleanup>,
@@ -411,6 +419,30 @@ pub struct Retry {
     /// out first, the step fails.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until: Option<String>,
+    /// Which attempts are retried. `any` (default) retries a failed attempt
+    /// and one whose `until` is still false; `until` retries only an attempt
+    /// that succeeded with `until` still false, so a failed call is never
+    /// repeated.
+    #[serde(default, skip_serializing_if = "RetryOn::is_any")]
+    pub on: RetryOn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetryOn {
+    /// Retry failed attempts and, with `until`, attempts whose condition is
+    /// still false.
+    #[default]
+    Any,
+    /// Retry only while `until` is false; the first failed attempt fails the
+    /// step.
+    Until,
+}
+
+impl RetryOn {
+    fn is_any(&self) -> bool {
+        *self == RetryOn::Any
+    }
 }
 
 fn one() -> u32 {
@@ -424,6 +456,25 @@ pub struct ArtifactSpec {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FactSpec {
+    pub label: String,
+    /// Text to show; may contain `${{ }}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// An http or https link; may contain `${{ }}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+}
+
+/// Whether a fact's link may be shown as a link: http or https with
+/// something after the scheme.
+pub fn is_web_link(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    ["https://", "http://"].iter().any(|p| lower.strip_prefix(p).is_some_and(|rest| !rest.is_empty()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]

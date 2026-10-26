@@ -776,7 +776,7 @@ export function FactList({ facts }: { facts: Fact[] }) {
           <dd>
             {f.href ? (
               <a href={f.href} target="_blank" rel="noopener noreferrer">
-                {f.value ?? f.href}
+                {f.value || f.href}
               </a>
             ) : (
               f.value

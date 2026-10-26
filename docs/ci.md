@@ -14,9 +14,12 @@ jobs:
         with: { fetch-depth: 0 }          # `lest affected` needs history
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
-      - run: npm ci && npx playwright install --with-deps chromium
+      - run: npm ci
       - run: sudo apt-get install -y ffmpeg   # only for demo recordings
-      - run: cargo install --git https://github.com/open-cli-collective/lest --locked lest
+      - uses: open-cli-collective/lest@v0.1.0   # pin a release tag or commit
+        with:
+          version: v0.1.0
+          install-browsers: true              # only for browser steps
       - name: Run the flows this change affects
         env:
           LEST_SECRET_API_TOKEN: ${{ secrets.API_TOKEN }}
@@ -32,6 +35,22 @@ jobs:
           done
           exit $failed
 ```
+
+## Installing Lest
+
+The `open-cli-collective/lest` action installs a release binary on a Linux
+runner (x86_64 or arm64), checks it against the release's `checksums.txt`,
+caches it, and puts `lest` on `PATH`.
+
+| Input | Default | |
+|---|---|---|
+| `version` | `latest` | A release tag (`v0.1.3` or `0.1.3`), or `latest`. Pin one so a new release cannot change a passing job. |
+| `install-browsers` | `false` | Run `npx playwright install --with-deps chromium` in `working-directory`. Playwright itself comes from the project's `package.json`. |
+| `working-directory` | `.` | The flows project. |
+| `github-token` | `github.token` | Reads the release. |
+
+The `version` output is the installed version. On other platforms, install
+from source (see the README).
 
 ## Choosing what to run
 

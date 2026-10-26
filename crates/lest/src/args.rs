@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Run end-to-end flows against real systems, and record demos from them.
 #[derive(Debug, Parser)]
-#[command(name = "lest", version, about, long_about = None, propagate_version = true)]
+#[command(name = "lest", version = lest_core::VERSION, about, long_about = None, propagate_version = true)]
 pub struct Cli {
     /// Project directory (default: the nearest ancestor with a lest.yaml).
     #[arg(short = 'p', long, global = true, value_name = "DIR")]

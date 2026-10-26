@@ -721,6 +721,44 @@ steps:
 }
 
 #[tokio::test]
+async fn facts_name_what_a_step_made_and_link_to_it() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: facts
+name: Facts
+secrets: [token]
+steps:
+  - id: create
+    env: { TOKEN: "${{ secrets.token }}" }
+    run: 'echo "{\"id\": \"42\", \"key\": \"$TOKEN\"}"'
+    outputs: { id: self.json.id, key: self.json.key }
+    facts:
+      - { label: Order, value: "${{ self.outputs.id }}", href: "https://shop.example.com/orders/${{ self.outputs.id }}" }
+      - { label: Key, value: "${{ self.outputs.key }}" }
+      - { label: Local, value: here, href: "file:///etc/${{ self.outputs.id }}" }
+  - id: never
+    when: "false"
+    run: "true"
+    facts: [{ label: Skipped, value: x }]
+"#,
+    )]);
+    let engine = f.engine(&[("token", "very-secret-token")]);
+    let (r, _) = run(&engine, "facts", &[]).await;
+    assert_eq!(r.result, RunResult::Passed, "{:?}", r.error);
+    let facts = &r.find_step("create").unwrap().facts;
+    assert_eq!(facts.len(), 3);
+    assert_eq!(facts[0].value.as_deref(), Some("42"));
+    assert_eq!(facts[0].href.as_deref(), Some("https://shop.example.com/orders/42"));
+    assert_eq!(facts[1].value.as_deref(), Some("[redacted:token]"));
+    assert_eq!(facts[2].value.as_deref(), Some("here"));
+    assert_eq!(facts[2].href, None);
+    assert!(r.warnings.iter().any(|w| w.contains("Local") && w.contains("http")), "{:?}", r.warnings);
+    assert!(r.find_step("never").unwrap().facts.is_empty());
+}
+
+#[tokio::test]
 async fn services_start_before_steps_and_stop_after() {
     let f = Fixture::new(&[(
         "a.lest.yaml",

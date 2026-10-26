@@ -207,10 +207,26 @@ pub struct StepReport {
     pub tolerated: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
+    /// Named values and links the step declared in `facts`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub facts: Vec<Fact>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beats: Vec<Beat>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<StepReport>,
+}
+
+/// A named value or link a step produced or touched, such as a created
+/// record's id and a link to it.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Fact {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// An http or https URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

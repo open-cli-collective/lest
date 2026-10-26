@@ -101,6 +101,7 @@ Fields every step accepts:
 | `outputs` | Named values the step exposes, each a CEL expression over `self`. |
 | `expect` | CEL conditions over `self` that decide success, replacing the default check. |
 | `artifacts` | Files to keep with the run: `[{path, label}]`. Paths are relative to the flow file, may use `*`, and may contain `${{ }}`. |
+| `facts` | Named values and links to show with the result: `[{label, value, href}]`. See [Facts](#facts). |
 | `cleanup` | A command that undoes the step. See [Cleanup](#cleanup). |
 
 ### run
@@ -247,7 +248,7 @@ empty, everything else as JSON).
 | `secrets.<name>` | Declared secrets. Allowed only in `env`, `http`, browser values and `cleanup.env`, so they never reach assertions or outputs. |
 | `steps.<id>` | An earlier step: `status`, `outputs`, `stdout`, `stderr`, `exitCode`, `durationMs`, `json` (stdout parsed as JSON, or null), `body`, `headers`, `error`, `attempt`. For `http` steps `status` is the HTTP status. |
 | `run` | `id`, `startedAt`, `startedAtMs`, `environment`, `flowId`, `dir`, `projectDir`. |
-| `self` | The current step, in `until`, `expect`, `outputs`, `artifacts` and `cleanup`. |
+| `self` | The current step, in `until`, `expect`, `outputs`, `artifacts`, `facts` and `cleanup`. |
 
 Besides the CEL standard library (`size`, `contains`, `startsWith`,
 `endsWith`, `matches`, `has`, `all`, `exists`, `map`, `filter`, ...), the
@@ -276,6 +277,33 @@ outputs:
 Outputs are evaluated after each attempt, so `until` can read
 `self.outputs`. A failing output expression fails a step that otherwise
 passed.
+
+## Facts
+
+```yaml
+- id: create_order
+  run: ./create-order.sh
+  outputs: { id: self.json.id }
+  facts:
+    - label: Order
+      value: ${{ self.outputs.id }}
+      href: https://shop.example.com/admin/orders/${{ self.outputs.id }}
+    - label: Customer
+      value: ${{ vars.customer }}
+```
+
+A fact names something the step created or touched, so the person reading
+the result can find it: a record id, an account, a link to the record in
+another app. Each fact has a `label` and a `value`, an `href`, or both. Both
+may contain `${{ }}`, including `self`.
+
+Facts are evaluated once the step has run, whatever its result, and are left
+out when the step is skipped. Secret values are redacted. A link must be
+`http` or `https`; a written link that is not fails validation, and one that
+only resolves to another scheme is dropped with a warning while the value is
+kept. Facts are recorded in the report's `facts` list for the step, printed
+under the step by `lest run`, and shown with the step's artifacts in the
+app. They never change the result.
 
 ## Retries and polling
 

@@ -282,6 +282,9 @@ fn check_names(ctx: &mut Ctx, flow: &Flow) {
         if flow.vars.contains_key(&input.name) {
             ctx.err(&at, "an input and a var share this name");
         }
+        if input.advanced && input.required && input.default.is_none() {
+            ctx.err(&at, "an advanced input needs a default when it is required, so the run form can start without it");
+        }
         if !input.choices.is_empty() {
             let values: BTreeSet<&str> = input.choices.iter().map(|c| c.value.as_str()).collect();
             if values.len() != input.choices.len() {
@@ -792,6 +795,25 @@ steps:
     assert: ["steps.fetch.status == 200", "vars.seats == 5 || inputs.plan == 'free'"]
 "#]);
         assert!(errors(&c).is_empty(), "{:?}", errors(&c));
+    }
+
+    #[test]
+    fn an_advanced_required_input_needs_a_default() {
+        let c = catalog(&[r#"
+apiVersion: lest/v1
+id: adv
+name: Advanced
+inputs:
+  - { name: tenant, required: true, advanced: true }
+  - { name: region, required: true, advanced: true, default: eu }
+  - { name: note, advanced: true }
+steps:
+  - id: a
+    run: echo hi
+"#]);
+        let e = errors(&c);
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].starts_with("inputs.tenant: an advanced input needs a default"), "{e:?}");
     }
 
     #[test]

@@ -160,6 +160,8 @@ export interface Input {
   description?: string;
   default?: Scalar;
   required: boolean;
+  /** Shown only after "More options" in the run form. */
+  advanced?: boolean;
   choices?: Choice[];
 }
 

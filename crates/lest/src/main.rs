@@ -405,7 +405,13 @@ fn cmd_get(ctx: &Ctx, a: GetArgs) -> Result<u8> {
             format!(" [{}]", i.choices.iter().map(|c| c.value.as_str()).collect::<Vec<_>>().join("|"))
         };
         let default = i.default.as_ref().map(|d| format!(" = {}", d.as_env_string())).unwrap_or_default();
-        println!("Input: {}{choices}{default}{}", i.name, if i.required { " (required)" } else { "" });
+        let mark = match (i.required, i.advanced) {
+            (true, true) => " (required, advanced)",
+            (true, false) => " (required)",
+            (false, true) => " (advanced)",
+            (false, false) => "",
+        };
+        println!("Input: {}{choices}{default}{mark}", i.name);
     }
     if !f.tools.is_empty() {
         println!("Tools: {}", f.tools.iter().map(|t| t.name()).collect::<Vec<_>>().join(", "));

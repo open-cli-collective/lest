@@ -363,6 +363,11 @@ inputs:
 choice can configure several values. Unknown inputs and values outside
 `choices` stop the run before any step.
 
+`advanced: true` keeps an input out of the way: the UI's run form shows it
+only after **More options**, and it runs with its default otherwise. Use it
+for values most runs leave alone. `--input` sets it like any other input. A
+required advanced input needs a `default`.
+
 ## Secrets
 
 Flows reference secrets by name. Values come from the backends in

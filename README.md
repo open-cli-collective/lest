@@ -198,8 +198,11 @@ pick up a failure, ready to paste anywhere.
 ## CI
 
 `lest run` exits non-zero on failure and can write JUnit XML.
-`lest affected --base origin/main` lists the flows whose files, called flows,
-scripts or `affects` globs a change touches, so a pipeline runs only those.
+`lest run --affected origin/main` runs only the flows whose files, called
+flows, scripts or `affects` globs a change touches; `lest run --tag smoke`
+runs a tagged set. Several flows run in one command, with a combined exit
+code, a summary table and a GitHub Actions job summary, and
+`lest affected --json` feeds a CI matrix.
 Webhook notifications (JSON or Slack-compatible) go out after each run, and
 `lest bundle` zips a run's report and artifacts with checksums for evidence.
 

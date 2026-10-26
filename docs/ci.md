@@ -5,13 +5,15 @@ same way you do locally.
 
 ## A GitHub Actions job
 
+One job that runs the flows a change affects:
+
 ```yaml
 jobs:
   flows:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with: { fetch-depth: 0 }          # `lest affected` needs history
+        with: { fetch-depth: 0 }          # --affected needs history
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
       - run: npm ci && npx playwright install --with-deps chromium
@@ -20,18 +22,76 @@ jobs:
       - name: Run the flows this change affects
         env:
           LEST_SECRET_API_TOKEN: ${{ secrets.API_TOKEN }}
-        run: |
-          set -e
-          # On its own line, so a failure (a missing base, a broken flow)
-          # fails the job instead of selecting nothing.
-          flows="$(lest affected --base origin/main --id)"
-          set +e
-          failed=0
-          for flow in $flows; do
-            lest run "$flow" --non-interactive --junit "junit-$flow.xml" || failed=1
-          done
-          exit $failed
+        run: lest run --affected origin/main --non-interactive -o reports --junit junit.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lest-reports
+          path: |
+            reports/
+            junit.xml
 ```
+
+`lest run` takes any mix of flow ids, `--tag <tag>` (repeatable) and
+`--affected <ref>`, and runs every selected flow once, in that order. When
+`GITHUB_STEP_SUMMARY` is set, as it is in GitHub Actions, it appends a table
+of the runs (flow, result, duration, run id, failing step and why) to the
+job's summary page.
+
+To spread flows over parallel jobs, select them in one job and run each in a
+matrix job:
+
+```yaml
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      flows: ${{ steps.affected.outputs.flows }}
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - run: cargo install --git https://github.com/open-cli-collective/lest --locked lest
+      - id: affected
+        run: echo "flows=$(lest affected --base origin/main --json)" >> "$GITHUB_OUTPUT"
+  flow:
+    needs: select
+    if: needs.select.outputs.flows != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flow: ${{ fromJSON(needs.select.outputs.flows) }}
+    steps:
+      # checkout, Node, Playwright and lest as above
+      - run: lest run "${{ matrix.flow.id }}" --non-interactive --junit junit.xml
+```
+
+`lest list --json` prints the same shape for a tag or name filter. Both print
+one line, a JSON array of objects with an `id`: `lest list` adds `name`,
+`path` and `tags`, `lest affected` adds `reasons`.
+
+## Running several flows
+
+- **Validation first:** every selected flow, and every flow it calls, is
+  checked before any of them runs. A flow that is not found or a tag no flow
+  has exits 4; a validation error exits 2.
+- **Order and concurrency:** flows run one at a time by default.
+  `--max-parallel <n>` runs up to n at once; each run then prints only its
+  result line, not its steps, and no tool sign-in waits for input. Flows that
+  share something (an account, a port, test data) declare it under
+  `resources:` so they do not overlap.
+- **Inputs:** each flow gets the `--input` values it declares. An input that
+  no selected flow declares is a usage error.
+- **Outputs:** `-o` names a directory that gets one `<flow>.json` report per
+  flow, and `--junit` writes one file with a `<testsuite>` per flow inside
+  `<testsuites>`. This holds for any `--tag` or `--affected` selection, even
+  one that matches a single flow; naming exactly one flow keeps `-o` and
+  `--junit` as single-report files.
+- **Exit code:** the worst result wins: cancelled (130) over could not run
+  (3) over failed (1) over passed (0). Ctrl-C cancels the running flows and
+  the queued ones never start. A `--affected` selection that matches nothing
+  exits 0.
+- `--from` resumes a single named flow only.
 
 ## Choosing what to run
 
@@ -59,15 +119,16 @@ plants-api      | app/server.mjs
 sign-in         | app/server.mjs
 ```
 
-`--id` prints one id per line for scripts.
+`--id` prints one id per line for scripts, and `--json` one JSON line for a
+CI matrix.
 
 ## Results
 
 - **Exit codes:** 0 passed, 1 failed, 2 invalid flow or usage, 3 could not
   run (a tool missing or signed out, a missing secret), 4 not found, 130
-  cancelled.
+  cancelled. With several flows, the worst one wins (see above).
 - **JUnit:** `--junit <path>` writes one test case per step, for CI test
-  views.
+  views. A run that could not start is one errored `preflight` test case.
 - **JSON:** `-o <path>` writes the full report (`lest schema report`
   describes it).
 - **Evidence:** `lest bundle <run> -o evidence.zip` zips the report and the

@@ -11,7 +11,8 @@ demos from them. Use this guide to write, run and fix flows.
 1. Find flows: `lest list` (ids, names, paths, last result).
 2. Read a flow: `lest get <id>` or open its file.
 3. Validate after every edit: `lest validate` (exit 0 means valid).
-4. Run: `lest run <id>`; rerun from a failed top-level step with
+4. Run: `lest run <id>` (or several: `lest run <a> <b>`, `--tag <t>`,
+   `--affected <ref>`); rerun from a failed top-level step with
    `lest run <id> --from <step>`.
 5. Read results: `lest runs list`, `lest runs get <run>`, or the full report
    with `lest runs get <run> -o report.json`.

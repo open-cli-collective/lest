@@ -161,6 +161,10 @@ pub struct Input {
     /// A run fails before any step when a required input has no value.
     #[serde(default)]
     pub required: bool,
+    /// Kept out of the way in the UI's run form, behind "More options".
+    /// The CLI's `--input` sets it like any other input.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub advanced: bool,
     /// Restricts the value to one of these. A choice can set further
     /// variables with `sets`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

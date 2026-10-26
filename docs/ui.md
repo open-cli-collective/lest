@@ -32,8 +32,9 @@ a warning mark.
 
 The header shows the flow's name, id, file path, tags and description. Under
 it, the run controls: the environment (when the flow defines any), one field
-per input (a list for inputs with choices; required inputs are marked), Watch
-browser for flows with browser steps, and Run.
+per input (a list for inputs with choices; required inputs are marked),
+**More options** when the flow has advanced inputs, Watch browser for flows
+with browser steps, and Run.
 
 While a run is in progress, Run becomes Cancel. The first click stops the
 steps; `finally` steps and cleanups still run. Clicking again while cleanup

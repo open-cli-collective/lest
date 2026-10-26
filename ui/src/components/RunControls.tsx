@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
+import { formInputs } from "../lib/inputs";
 import { isLive } from "../store/runState";
 import { noteStarted, useRun } from "../store/store";
 import type { FlowSummary, Scalar } from "../types";
@@ -27,6 +28,7 @@ export function RunControls({
   const [inputs, setInputs] = useState<Record<string, string>>(() =>
     Object.fromEntries(flow.inputs.map((i) => [i.name, defaultValue(i.default)])),
   );
+  const [moreOptions, setMoreOptions] = useState(false);
   const [liveView, setLiveView] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -36,6 +38,8 @@ export function RunControls({
   const stage = runId ? cancelStage[runId] : undefined;
 
   const missing = flow.inputs.filter((i) => i.required && !inputs[i.name]);
+  const form = formInputs(flow.inputs, moreOptions);
+  const advancedCount = flow.inputs.filter((i) => i.advanced).length;
 
   const start = async () => {
     setError(null);
@@ -88,7 +92,7 @@ export function RunControls({
           </select>
         </label>
       )}
-      {flow.inputs.map((input) => (
+      {form.shown.map((input) => (
         <label className="field" key={input.name} title={input.description}>
           <span className="field-label">
             {input.label ?? input.name}
@@ -125,6 +129,16 @@ export function RunControls({
           )}
         </label>
       ))}
+      {advancedCount > 0 && (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          aria-expanded={moreOptions}
+          onClick={() => setMoreOptions((v) => !v)}
+        >
+          {moreOptions ? "Fewer options" : `More options (${form.hidden})`}
+        </button>
+      )}
       {flow.usesBrowser && (
         <Switch checked={liveView} onChange={setLiveView} label="Watch browser" />
       )}

@@ -9,10 +9,11 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
+use futures::StreamExt;
 use lest_core::catalog::{Catalog, Severity};
 use lest_core::paths::StateRoots;
 use lest_core::project::{PROJECT_FILE, Project};
-use lest_core::report::{CleanupStatus, RunResult};
+use lest_core::report::{CleanupStatus, RunReport, RunResult};
 use lest_core::runner::{self, Engine, RunCancel, RunRequest};
 use lest_core::secrets::{Keyring, Resolver, SystemKeyring};
 use lest_core::store::Store;
@@ -213,93 +214,132 @@ fn keyring() -> Arc<dyn Keyring> {
     Arc::new(SystemKeyring)
 }
 
-async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
+/// The flows one `lest run` selected, in run order, with the project and
+/// catalog they resolve against.
+struct Selection {
+    project: Project,
+    catalog: Catalog,
+    ids: Vec<String>,
+}
+
+/// Fails with every validation error in the catalog: a flow that does not
+/// parse cannot be selected, and leaving it (and its callers) out quietly
+/// would hide it.
+fn require_valid(catalog: &Catalog) -> Result<()> {
+    let broken: Vec<_> = catalog.diagnostics.iter().filter(|d| d.severity == Severity::Error).collect();
+    if broken.is_empty() {
+        return Ok(());
+    }
+    for d in &broken {
+        eprintln!("{d}");
+    }
+    Err(fail(exit::USAGE, format!("{} validation error(s); fix them before selecting flows", broken.len())))
+}
+
+/// Resolves the named flows, then the `--tag` and `--affected` selections,
+/// and checks every selected flow before any of them runs.
+fn select_flows(ctx: &Ctx, a: &RunArgs, style: Style) -> Result<Selection> {
+    if a.flows.is_empty() && a.tags.is_empty() && a.affected.is_none() {
+        return Err(fail(exit::USAGE, "name a flow, or select flows with --tag or --affected"));
+    }
     // A path outside the discovered project: use that file's project.
     let mut project = ctx.project.clone();
-    let candidate = ctx.cwd.join(&a.flow);
-    if candidate.is_file() {
-        project = Project::discover(&candidate)?;
+    if let Some(file) = a.flows.iter().map(|f| ctx.cwd.join(f)).find(|p| p.is_file()) {
+        project = Project::discover(&file)?;
     }
     let mut catalog = Catalog::load(&project);
-    if candidate.is_file()
-        && lest_core::catalog::is_flow_file(&candidate)
-        && catalog.resolve(&project, &ctx.cwd, &a.flow).is_err()
-    {
-        catalog.load_file(&project, &candidate);
+    for f in &a.flows {
+        let candidate = ctx.cwd.join(f);
+        if candidate.is_file()
+            && lest_core::catalog::is_flow_file(&candidate)
+            && catalog.resolve(&project, &ctx.cwd, f).is_err()
+        {
+            catalog.load_file(&project, &candidate);
+        }
     }
     validate_catalog(&mut catalog);
-    let flow_id = match catalog.resolve(&project, &ctx.cwd, &a.flow) {
-        Ok(f) => f.flow.id.clone(),
-        Err(e) => {
-            // A file that does not parse never makes it into the catalog;
-            // show why instead of only "no flow".
-            for d in catalog.diagnostics.iter().filter(|d| d.flow.is_none() && d.severity == Severity::Error) {
-                eprintln!("{} {d}", style.red("✗"));
-            }
-            return Err(fail(exit::NOT_FOUND, e));
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut add = |id: &str| {
+        if !ids.iter().any(|x| x == id) {
+            ids.push(id.to_string());
         }
     };
-    check_runnable(&catalog, &flow_id, style)?;
-
-    let store = ctx.store();
-    let resume = match &a.from {
-        None => None,
-        Some(step) => {
-            let old = match &a.resume_run {
-                Some(id) => store.find(id)?,
-                None => store
-                    .latest(&flow_id)
-                    .ok_or_else(|| fail(exit::NOT_FOUND, format!("no earlier run of {flow_id} to resume from")))?,
-            };
-            Some((old, step.clone()))
+    let mut missing = Vec::new();
+    for f in &a.flows {
+        match catalog.resolve(&project, &ctx.cwd, f) {
+            Ok(lf) => add(&lf.flow.id),
+            Err(e) => missing.push(e),
         }
-    };
-    let engine = Engine {
-        browser: Some(browser_driver(&project, &ctx.roots, None)),
-        project,
-        catalog: Arc::new(catalog),
-        store: store.clone(),
-        keyring: keyring(),
-    };
-    let req = RunRequest {
-        flow_id: flow_id.clone(),
-        environment: a.environment.clone(),
-        inputs: parse_inputs(&a.inputs)?,
-        resume,
-        interactive: !a.non_interactive && std::io::stdin().is_terminal(),
-        browser: runner::BrowserOptions { headed: a.headed, live_view: false },
-    };
+    }
+    if !missing.is_empty() {
+        // A file that does not parse never makes it into the catalog;
+        // show why instead of only "no flow".
+        for d in catalog.diagnostics.iter().filter(|d| d.flow.is_none() && d.severity == Severity::Error) {
+            eprintln!("{} {d}", style.red("✗"));
+        }
+        return Err(fail(exit::NOT_FOUND, missing.join("; ")));
+    }
+    for t in &a.tags {
+        let tagged: Vec<&str> =
+            catalog.flows.iter().filter(|f| f.flow.tags.contains(t)).map(|f| f.flow.id.as_str()).collect();
+        if tagged.is_empty() {
+            return Err(fail(exit::NOT_FOUND, format!("no flow has the tag {t}")));
+        }
+        tagged.into_iter().for_each(&mut add);
+    }
+    if let Some(base) = &a.affected {
+        require_valid(&catalog)?;
+        let changed = lest_core::affected::changed_since(&project.root, base).map_err(|e| fail(exit::ERRORED, e))?;
+        let affected = lest_core::affected::affected(&catalog, &changed).map_err(|e| fail(exit::USAGE, e))?;
+        eprintln!("{} changed file(s), {} affected flow(s)", changed.len(), affected.len());
+        for f in &affected {
+            add(&f.flow_id);
+        }
+    }
+    for id in &ids {
+        check_runnable(&catalog, id, style)?;
+    }
+    Ok(Selection { project, catalog, ids })
+}
 
-    let cancel = RunCancel::default();
-    {
-        let cancel = cancel.clone();
-        tokio::spawn(async move {
-            let mut presses = 0;
-            while interrupted().await {
-                presses += 1;
-                match presses {
-                    1 => {
-                        eprintln!(
-                            "\nlest: cancelling; finally steps and cleanups still run (Ctrl-C again to skip them)"
-                        );
-                        cancel.main.cancel();
-                    }
-                    2 => {
-                        eprintln!("\nlest: skipping cleanup (Ctrl-C again to exit now)");
-                        cancel.cleanup.cancel();
-                    }
-                    _ => {
-                        // A hard exit skips cleanup; still stop services.
-                        lest_core::services::kill_all();
-                        std::process::exit(exit::CANCELLED as i32)
-                    }
+/// Ctrl-C (or SIGTERM, SIGHUP) cancels the runs: once to cancel, twice to
+/// skip cleanup, three times to exit now.
+fn handle_interrupts(cancel: &RunCancel) {
+    let cancel = cancel.clone();
+    tokio::spawn(async move {
+        let mut presses = 0;
+        while interrupted().await {
+            presses += 1;
+            match presses {
+                1 => {
+                    eprintln!("\nlest: cancelling; finally steps and cleanups still run (Ctrl-C again to skip them)");
+                    cancel.main.cancel();
+                }
+                2 => {
+                    eprintln!("\nlest: skipping cleanup (Ctrl-C again to exit now)");
+                    cancel.cleanup.cancel();
+                }
+                _ => {
+                    // A hard exit skips cleanup; still stop services.
+                    lest_core::services::kill_all();
+                    std::process::exit(exit::CANCELLED as i32)
                 }
             }
-        });
-    }
+        }
+    });
+}
 
+/// Runs one flow, printing its progress unless `quiet`, and returns the
+/// report and where it was written.
+async fn run_one(
+    engine: &Engine,
+    req: RunRequest,
+    cancel: RunCancel,
+    style: Style,
+    quiet: bool,
+) -> (RunReport, String) {
     let (tx, mut rx) = mpsc::unbounded_channel::<lest_core::event::RunEvent>();
-    let quiet = a.quiet;
     let printer = tokio::spawn(async move {
         let mut progress = Progress::new(style, quiet);
         let mut report_path = String::new();
@@ -311,32 +351,163 @@ async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
         }
         report_path
     });
-    let report = runner::execute(&engine, req, tx, cancel).await;
-    let report_path = printer.await.unwrap_or_default();
+    let report = runner::execute(engine, req, tx, cancel).await;
+    (report, printer.await.unwrap_or_default())
+}
 
-    if !a.quiet {
-        render::summary(style, &report, &report_path);
-    }
-    if let Some(out) = &a.output {
-        std::fs::write(out, serde_json::to_vec_pretty(&report)?)
-            .with_context(|| format!("writing {}", out.display()))?;
-    }
-    if let Some(out) = &a.junit {
-        std::fs::write(out, render::junit(&report)).with_context(|| format!("writing {}", out.display()))?;
-    }
-    println!(
-        "{} {} {} {}",
-        render::result_word(style, report.result),
-        report.flow_id,
-        render::duration(report.duration_ms),
-        report.run_id
-    );
-    Ok(match report.result {
+fn exit_code(result: RunResult) -> u8 {
+    match result {
         RunResult::Passed => 0,
         RunResult::Failed => exit::FAILED,
         RunResult::Errored => exit::ERRORED,
         RunResult::Cancelled => exit::CANCELLED,
-    })
+    }
+}
+
+/// The exit code of several runs: the worst one, where cancelled (130)
+/// outranks could not run (3), which outranks failed (1).
+fn worst_exit(codes: impl IntoIterator<Item = u8>) -> u8 {
+    let rank = |c: u8| match c {
+        exit::CANCELLED => 3,
+        exit::ERRORED => 2,
+        exit::FAILED => 1,
+        _ => 0,
+    };
+    codes.into_iter().max_by_key(|&c| rank(c)).unwrap_or(0)
+}
+
+async fn cmd_run(ctx: &Ctx, a: RunArgs, style: Style) -> Result<u8> {
+    // Several flows, or a --tag or --affected selection whatever it matches,
+    // turn -o into a directory and --junit into one file of several suites.
+    let single = a.flows.len() == 1 && a.tags.is_empty() && a.affected.is_none();
+    if !single && a.from.is_some() {
+        return Err(fail(exit::USAGE, "--from resumes one flow; name a single flow"));
+    }
+    let Selection { project, catalog, ids } = select_flows(ctx, &a, style)?;
+    let inputs = parse_inputs(&a.inputs)?;
+    let declares = |id: &str, name: &str| catalog.get(id).is_some_and(|f| f.flow.inputs.iter().any(|i| i.name == name));
+    if !single {
+        // Each flow gets the inputs it declares; one that no selected flow
+        // declares is a mistake, not something to drop silently.
+        for k in inputs.keys() {
+            if !ids.iter().any(|id| declares(id, k)) {
+                return Err(fail(exit::USAGE, format!("no selected flow has an input '{k}'")));
+            }
+        }
+    }
+
+    let store = ctx.store();
+    let mut resume = match &a.from {
+        None => None,
+        Some(step) => {
+            let old = match &a.resume_run {
+                Some(id) => store.find(id)?,
+                None => store
+                    .latest(&ids[0])
+                    .ok_or_else(|| fail(exit::NOT_FOUND, format!("no earlier run of {} to resume from", ids[0])))?,
+            };
+            Some((old, step.clone()))
+        }
+    };
+    // Concurrent runs cannot share the terminal for a sign-in.
+    let interactive = !a.non_interactive && a.max_parallel == 1 && std::io::stdin().is_terminal();
+    let reqs: Vec<RunRequest> = ids
+        .iter()
+        .map(|id| RunRequest {
+            flow_id: id.clone(),
+            environment: a.environment.clone(),
+            inputs: inputs
+                .iter()
+                .filter(|(k, _)| single || declares(id, k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            resume: resume.take(),
+            interactive,
+            browser: runner::BrowserOptions { headed: a.headed, live_view: false },
+        })
+        .collect();
+    let engine = Engine {
+        browser: Some(browser_driver(&project, &ctx.roots, None)),
+        project,
+        catalog: Arc::new(catalog),
+        store: store.clone(),
+        keyring: keyring(),
+    };
+
+    if ids.is_empty() {
+        eprintln!("no flows selected");
+    }
+    let cancel = RunCancel::default();
+    handle_interrupts(&cancel);
+    // Step lines from concurrent runs would interleave: above one at a time,
+    // each run prints only its result.
+    let quiet_steps = a.quiet || a.max_parallel > 1;
+    let mut finished: Vec<(usize, Option<(RunReport, String)>)> =
+        futures::stream::iter(reqs.into_iter().enumerate().map(|(i, req)| {
+            let (engine, cancel, quiet) = (&engine, cancel.clone(), a.quiet);
+            async move {
+                // Flows still queued when the user cancels do not start.
+                if cancel.main.is_cancelled() {
+                    return (i, None);
+                }
+                let (report, path) = run_one(engine, req, cancel, style, quiet_steps).await;
+                if !quiet {
+                    render::summary(style, &report, &path);
+                }
+                println!(
+                    "{} {} {} {}",
+                    render::result_word(style, report.result),
+                    report.flow_id,
+                    render::duration(report.duration_ms),
+                    report.run_id
+                );
+                (i, Some((report, path)))
+            }
+        }))
+        .buffer_unordered(a.max_parallel as usize)
+        .collect()
+        .await;
+    finished.sort_by_key(|(i, _)| *i);
+    let reports: Vec<&RunReport> = finished.iter().filter_map(|(_, r)| r.as_ref().map(|r| &r.0)).collect();
+    let not_run: Vec<&str> = finished.iter().filter(|(_, r)| r.is_none()).map(|(i, _)| ids[*i].as_str()).collect();
+
+    if !single && !a.quiet && !ids.is_empty() {
+        print!("{}", render::runs_table(&reports, &not_run));
+    }
+    if let Some(out) = &a.output {
+        if single {
+            if let Some(r) = reports.first() {
+                std::fs::write(out, serde_json::to_vec_pretty(r)?)
+                    .with_context(|| format!("writing {}", out.display()))?;
+            }
+        } else {
+            std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+            for r in &reports {
+                let path = out.join(format!("{}.json", r.flow_id));
+                std::fs::write(&path, serde_json::to_vec_pretty(r)?)
+                    .with_context(|| format!("writing {}", path.display()))?;
+            }
+        }
+    }
+    if let Some(out) = &a.junit {
+        let xml = match reports.first() {
+            Some(r) if single => render::junit(r),
+            _ => render::junit_suites(&reports),
+        };
+        std::fs::write(out, xml).with_context(|| format!("writing {}", out.display()))?;
+    }
+    if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY").filter(|p| !p.is_empty()) {
+        let written = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| f.write_all(render::step_summary(&reports, &not_run).as_bytes()));
+        if let Err(e) = written {
+            eprintln!("{} cannot write the GitHub step summary: {e}", style.yellow("warning:"));
+        }
+    }
+    let codes = reports.iter().map(|r| exit_code(r.result));
+    Ok(worst_exit(codes.chain((!not_run.is_empty()).then_some(exit::CANCELLED))))
 }
 
 fn cmd_list(ctx: &Ctx, a: ListArgs) -> Result<u8> {
@@ -355,6 +526,14 @@ fn cmd_list(ctx: &Ctx, a: ListArgs) -> Result<u8> {
         for f in flows {
             println!("{}", f.flow.id);
         }
+        return Ok(0);
+    }
+    if a.json {
+        let items: Vec<_> = flows
+            .iter()
+            .map(|f| serde_json::json!({"id": f.flow.id, "name": f.flow.name, "path": f.rel_path, "tags": f.flow.tags}))
+            .collect();
+        println!("{}", serde_json::Value::Array(items));
         return Ok(0);
     }
     let rows: Vec<Vec<String>> = flows
@@ -405,7 +584,13 @@ fn cmd_get(ctx: &Ctx, a: GetArgs) -> Result<u8> {
             format!(" [{}]", i.choices.iter().map(|c| c.value.as_str()).collect::<Vec<_>>().join("|"))
         };
         let default = i.default.as_ref().map(|d| format!(" = {}", d.as_env_string())).unwrap_or_default();
-        println!("Input: {}{choices}{default}{}", i.name, if i.required { " (required)" } else { "" });
+        let mark = match (i.required, i.advanced) {
+            (true, true) => " (required, advanced)",
+            (true, false) => " (required)",
+            (false, true) => " (advanced)",
+            (false, false) => "",
+        };
+        println!("Input: {}{choices}{default}{mark}", i.name);
     }
     if !f.tools.is_empty() {
         println!("Tools: {}", f.tools.iter().map(|t| t.name()).collect::<Vec<_>>().join(", "));
@@ -497,7 +682,7 @@ fn cmd_runs(ctx: &Ctx, command: RunsCommand, style: Style) -> Result<u8> {
             Ok(0)
         }
         RunsCommand::Get { run, output } => {
-            let r = store.find(&run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+            let r = find_run(&store, &run)?;
             if let Some(out) = output {
                 std::fs::write(&out, serde_json::to_vec_pretty(&r)?)?;
                 eprintln!("wrote {}", out.display());
@@ -558,7 +743,7 @@ fn confirm(question: &str, force: bool) -> Result<bool> {
 
 async fn cmd_cleanup(ctx: &Ctx, a: CleanupArgs, style: Style) -> Result<u8> {
     let store = ctx.store();
-    let mut report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let mut report = find_run(&store, &a.run)?;
     let left =
         |c: &&mut lest_core::report::CleanupReport| matches!(c.status, CleanupStatus::NotRun | CleanupStatus::Failed);
     let count = report.cleanups.iter_mut().filter(left).count();
@@ -629,24 +814,17 @@ fn regex_redacted() -> regex::Regex {
 
 fn cmd_affected(ctx: &Ctx, a: AffectedArgs) -> Result<u8> {
     let catalog = ctx.catalog();
-    // A flow that does not parse cannot be selected; say so rather than
-    // quietly leaving it (and its callers) out.
-    let broken: Vec<_> = catalog.diagnostics.iter().filter(|d| d.severity == Severity::Error).collect();
-    if !broken.is_empty() {
-        for d in &broken {
-            eprintln!("{d}");
-        }
-        return Err(fail(
-            exit::USAGE,
-            format!("{} validation error(s); fix them before selecting flows", broken.len()),
-        ));
-    }
+    require_valid(&catalog)?;
     let changed = lest_core::affected::changed_since(&ctx.project.root, &a.base).map_err(|e| fail(exit::ERRORED, e))?;
     let affected = lest_core::affected::affected(&catalog, &changed).map_err(|e| fail(exit::USAGE, e))?;
     if a.id {
         for f in &affected {
             println!("{}", f.flow_id);
         }
+    } else if a.json {
+        let items: Vec<_> =
+            affected.iter().map(|f| serde_json::json!({"id": f.flow_id, "reasons": f.reasons})).collect();
+        println!("{}", serde_json::Value::Array(items));
     } else {
         let rows: Vec<Vec<String>> = affected.iter().map(|f| vec![f.flow_id.clone(), f.reasons.join(", ")]).collect();
         print!("{}", render::table(&["FLOW", "WHY"], &rows));
@@ -655,9 +833,19 @@ fn cmd_affected(ctx: &Ctx, a: AffectedArgs) -> Result<u8> {
     Ok(0)
 }
 
+/// The run a command names: by id or unique prefix, or the newest run of a
+/// flow.
+fn find_run(store: &Store, r: &RunRef) -> Result<lest_core::report::RunReport> {
+    match (&r.run, &r.flow) {
+        (_, Some(flow)) => store.latest(flow).ok_or_else(|| fail(exit::NOT_FOUND, format!("no runs of flow '{flow}'"))),
+        (Some(run), None) => store.find(run).map_err(|e| fail(exit::NOT_FOUND, e.to_string())),
+        (None, None) => Err(fail(exit::USAGE, "give a run id or --flow")),
+    }
+}
+
 fn cmd_bundle(ctx: &Ctx, a: BundleArgs) -> Result<u8> {
     let store = ctx.store();
-    let report = store.find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let report = find_run(&store, &a.run)?;
     let out = a.output.unwrap_or_else(|| PathBuf::from(format!("lest-{}-{}.zip", report.flow_id, report.run_id)));
     let manifest = lest_core::bundle::bundle(&store.run_dir(&report.flow_id, &report.run_id), &report, &out)
         .map_err(|e| fail(exit::ERRORED, e))?;
@@ -887,7 +1075,7 @@ fn user_config(ctx: &Ctx) -> Result<lest_core::ai::UserConfig> {
 }
 
 fn cmd_explain(ctx: &Ctx, a: ExplainArgs, context_only: bool) -> Result<u8> {
-    let report = ctx.store().find(&a.run).map_err(|e| fail(exit::NOT_FOUND, e.to_string()))?;
+    let report = find_run(&ctx.store(), &a.run)?;
     let step = match &a.step {
         Some(id) => report
             .find_step(id)
@@ -1079,5 +1267,18 @@ fn cmd_data(ctx: &Ctx, command: DataCommand) -> Result<u8> {
             eprintln!("purged {}", dir.display());
             Ok(0)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_worst_exit_code_wins() {
+        assert_eq!(worst_exit([]), 0);
+        assert_eq!(worst_exit([0, exit::FAILED, 0]), exit::FAILED);
+        assert_eq!(worst_exit([exit::FAILED, exit::ERRORED]), exit::ERRORED);
+        assert_eq!(worst_exit([exit::ERRORED, exit::CANCELLED, exit::FAILED]), exit::CANCELLED);
     }
 }

@@ -95,12 +95,13 @@ Fields every step accepts:
 | `notes` | Shown next to the step and with its failure. Write what a reader needs when this step is red. |
 | `when` | CEL condition; the step is skipped when false. |
 | `timeout` | Per attempt: `500ms`, `30s`, `5m`, or seconds. Defaults: 60s for `run`, 30s for `http`, 120s for `browser`. |
-| `retry` | `{attempts, delay, until}`. See [Retries and polling](#retries-and-polling). |
+| `retry` | `{attempts, delay, until, on}`. See [Retries and polling](#retries-and-polling). |
 | `continueOnError` | A failure does not stop the flow. It is reported as a warning, never hidden. |
 | `env` | Environment variables for the step. Values may contain `${{ }}`. |
 | `outputs` | Named values the step exposes, each a CEL expression over `self`. |
 | `expect` | CEL conditions over `self` that decide success, replacing the default check. |
 | `artifacts` | Files to keep with the run: `[{path, label}]`. Paths are relative to the flow file, may use `*`, and may contain `${{ }}`. |
+| `facts` | Named values and links to show with the result: `[{label, value, href}]`. See [Facts](#facts). |
 | `cleanup` | A command that undoes the step. See [Cleanup](#cleanup). |
 
 ### run
@@ -247,7 +248,7 @@ empty, everything else as JSON).
 | `secrets.<name>` | Declared secrets. Allowed only in `env`, `http`, browser values and `cleanup.env`, so they never reach assertions or outputs. |
 | `steps.<id>` | An earlier step: `status`, `outputs`, `stdout`, `stderr`, `exitCode`, `durationMs`, `json` (stdout parsed as JSON, or null), `body`, `headers`, `error`, `attempt`. For `http` steps `status` is the HTTP status. |
 | `run` | `id`, `startedAt`, `startedAtMs`, `environment`, `flowId`, `dir`, `projectDir`. |
-| `self` | The current step, in `until`, `expect`, `outputs`, `artifacts` and `cleanup`. |
+| `self` | The current step, in `until`, `expect`, `outputs`, `artifacts`, `facts` and `cleanup`. |
 
 Besides the CEL standard library (`size`, `contains`, `startsWith`,
 `endsWith`, `matches`, `has`, `all`, `exists`, `map`, `filter`, ...), the
@@ -277,6 +278,33 @@ Outputs are evaluated after each attempt, so `until` can read
 `self.outputs`. A failing output expression fails a step that otherwise
 passed.
 
+## Facts
+
+```yaml
+- id: create_order
+  run: ./create-order.sh
+  outputs: { id: self.json.id }
+  facts:
+    - label: Order
+      value: ${{ self.outputs.id }}
+      href: https://shop.example.com/admin/orders/${{ self.outputs.id }}
+    - label: Customer
+      value: ${{ vars.customer }}
+```
+
+A fact names something the step created or touched, so the person reading
+the result can find it: a record id, an account, a link to the record in
+another app. Each fact has a `label` and a `value`, an `href`, or both. Both
+may contain `${{ }}`, including `self`.
+
+Facts are evaluated once the step has run, whatever its result, and are left
+out when the step is skipped. Secret values are redacted. A link must be
+`http` or `https`; a written link that is not fails validation, and one that
+only resolves to another scheme is dropped with a warning while the value is
+kept. Facts are recorded in the report's `facts` list for the step, printed
+under the step by `lest run`, and shown with the step's artifacts in the
+app. They never change the result.
+
 ## Retries and polling
 
 ```yaml
@@ -292,6 +320,15 @@ condition is true; otherwise it is retried, and the step fails when attempts
 run out. An expression error inside `until` (a field that does not exist
 yet) counts as "not yet". The report keeps the first attempt's start time
 and the total duration.
+
+Some calls must not be repeated after an error, such as a request to a
+system that may act on it twice or that limits retries. `on: until` polls
+only while the call succeeds and the condition is still false; the first
+failed attempt fails the step:
+
+```yaml
+retry: { attempts: 12, delay: 10s, until: self.outputs.status == 'posted', on: until }
+```
 
 To wait for a log line, poll whatever reads your logs and bound the window
 with the run's start, so a line from a previous run cannot satisfy it:
@@ -325,6 +362,11 @@ inputs:
 `--input region=us` picks a value. A choice's `sets` adds variables, so one
 choice can configure several values. Unknown inputs and values outside
 `choices` stop the run before any step.
+
+`advanced: true` keeps an input out of the way: the UI's run form shows it
+only after **More options**, and it runs with its default otherwise. Use it
+for values most runs leave alone. `--input` sets it like any other input. A
+required advanced input needs a `default`.
 
 ## Secrets
 
@@ -406,7 +448,8 @@ variables plus `cleanup.env`) and its directory are stored in the report,
 with secret values redacted. `lest cleanup <run>` replays the cleanups that
 did not run or failed, from the report rather than from a file that may have
 changed, resolves redacted secrets again, and records the outcome so a second
-replay does not repeat them.
+replay does not repeat them. `lest cleanup --flow <id>` replays the newest
+run of a flow.
 `on-failure` keeps the state after a pass for inspection; `manual` only
 records it.
 
@@ -429,4 +472,5 @@ listed in the report next to the result.
 
 `lest run` exits 0 when the run passed, 1 when it failed, 2 for a usage or
 validation error, 3 when it errored, 4 when the flow is not found, and 130
-when cancelled.
+when cancelled. With several flows, the worst result decides
+the exit code ([Running in CI](ci.md#running-several-flows)).

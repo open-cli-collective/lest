@@ -11,10 +11,12 @@ demos from them. Use this guide to write, run and fix flows.
 1. Find flows: `lest list` (ids, names, paths, last result).
 2. Read a flow: `lest get <id>` or open its file.
 3. Validate after every edit: `lest validate` (exit 0 means valid).
-4. Run: `lest run <id>`; rerun from a failed top-level step with
+4. Run: `lest run <id>` (or several: `lest run <a> <b>`, `--tag <t>`,
+   `--affected <ref>`); rerun from a failed top-level step with
    `lest run <id> --from <step>`.
 5. Read results: `lest runs list`, `lest runs get <run>`, or the full report
-   with `lest runs get <run> -o report.json`.
+   with `lest runs get <run> -o report.json`. Commands that take a run also
+   take `--flow <id>` for that flow's newest finished run.
 6. Explain a failure: `lest explain <run>` and `lest context <run>`.
 
 ## Rules that matter
@@ -26,7 +28,8 @@ demos from them. Use this guide to write, run and fix flows.
 - Secrets: list them under `secrets:` and use `${{ secrets.x }}` only in
   `env:`, `http`, browser values and `cleanup.env`.
 - Poll with `retry: {attempts, delay, until}`; do not lengthen waits to hide
-  slowness. A slow or failing step is information: find out why.
+  slowness. A slow or failing step is information: find out why. Add
+  `on: until` when a failed call must not be repeated.
 - Register cleanup on the step that creates something (`cleanup:`).
 - Never weaken an assertion to make a flow pass when it caught a real problem.
 

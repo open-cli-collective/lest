@@ -18,7 +18,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Run a flow.
+    /// Run one or more flows.
     Run(RunArgs),
     /// List the project's flows.
     #[command(visible_alias = "ls")]
@@ -77,8 +77,18 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
-    /// Flow id, unique id prefix, or path to a .lest.yaml file.
-    pub flow: String,
+    /// Flow ids, unique id prefixes, or paths to .lest.yaml files.
+    pub flows: Vec<String>,
+    /// Also run every flow with this tag (repeatable).
+    #[arg(short = 't', long = "tag", value_name = "TAG")]
+    pub tags: Vec<String>,
+    /// Also run the flows affected by changes since this ref (its merge base
+    /// with HEAD), as `lest affected` selects them.
+    #[arg(long, value_name = "REF")]
+    pub affected: Option<String>,
+    /// How many flows run at once when several are selected.
+    #[arg(long, value_name = "N", default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..))]
+    pub max_parallel: u16,
     /// Environment to run against.
     #[arg(short = 'e', long = "env", value_name = "NAME")]
     pub environment: Option<String>,
@@ -92,10 +102,12 @@ pub struct RunArgs {
     /// The run to take earlier results from when using --from.
     #[arg(long, value_name = "RUN", requires = "from")]
     pub resume_run: Option<String>,
-    /// Write the JSON report to this path.
+    /// Write the JSON report to this path; with several flows, a directory
+    /// that gets one `<flow>.json` per flow.
     #[arg(short = 'o', long, value_name = "PATH")]
     pub output: Option<PathBuf>,
-    /// Write a JUnit XML report to this path.
+    /// Write a JUnit XML report to this path; with several flows, one file
+    /// with a test suite per flow.
     #[arg(long, value_name = "PATH")]
     pub junit: Option<PathBuf>,
     /// Show the browser window for browser steps.
@@ -109,10 +121,21 @@ pub struct RunArgs {
     pub quiet: bool,
 }
 
+/// A run given by id, or the newest run of a flow.
+#[derive(Debug, Args)]
+#[group(required = true, multiple = false)]
+pub struct RunRef {
+    /// Run id or unique prefix.
+    pub run: Option<String>,
+    /// The newest finished run of this flow instead of a run id.
+    #[arg(long, value_name = "FLOW")]
+    pub flow: Option<String>,
+}
+
 #[derive(Debug, Args)]
 pub struct ExplainArgs {
-    /// Run id or unique prefix.
-    pub run: String,
+    #[command(flatten)]
+    pub run: RunRef,
     /// The step (default: the first failed step).
     #[arg(long)]
     pub step: Option<String>,
@@ -157,8 +180,11 @@ pub struct ListArgs {
     #[arg(long)]
     pub name: Option<String>,
     /// Print only ids, one per line.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "json")]
     pub id: bool,
+    /// Print a JSON array on one line (for a CI matrix).
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -188,8 +214,8 @@ pub enum RunsCommand {
     },
     /// Show one run.
     Get {
-        /// Run id or unique prefix.
-        run: String,
+        #[command(flatten)]
+        run: RunRef,
         /// Write the JSON report to this path.
         #[arg(short = 'o', long, value_name = "PATH")]
         output: Option<PathBuf>,
@@ -198,8 +224,8 @@ pub enum RunsCommand {
 
 #[derive(Debug, Args)]
 pub struct CleanupArgs {
-    /// Run id or unique prefix.
-    pub run: String,
+    #[command(flatten)]
+    pub run: RunRef,
     /// Print the commands without running them.
     #[arg(long)]
     pub dry_run: bool,
@@ -213,15 +239,18 @@ pub struct AffectedArgs {
     /// Compare against this ref (its merge base with HEAD).
     #[arg(long, default_value = "origin/main")]
     pub base: String,
-    /// Print only flow ids, one per line (for `xargs -n1 lest run`).
-    #[arg(long)]
+    /// Print only flow ids, one per line.
+    #[arg(long, conflicts_with = "json")]
     pub id: bool,
+    /// Print a JSON array on one line (for a CI matrix).
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct BundleArgs {
-    /// Run id or unique prefix.
-    pub run: String,
+    #[command(flatten)]
+    pub run: RunRef,
     /// Where to write the zip (default: lest-<flow>-<run>.zip).
     #[arg(short = 'o', long, value_name = "PATH")]
     pub output: Option<PathBuf>,
@@ -288,4 +317,23 @@ pub enum SchemaKind {
     Flow,
     Project,
     Report,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("lest").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn a_run_is_named_by_id_or_by_flow() {
+        let Some(Command::Bundle(b)) = parse(&["bundle", "--flow", "hello"]).unwrap().command else { panic!() };
+        assert_eq!((b.run.run, b.run.flow.as_deref()), (None, Some("hello")));
+        let Some(Command::Cleanup(c)) = parse(&["cleanup", "20260101T000000Z"]).unwrap().command else { panic!() };
+        assert_eq!(c.run.run.as_deref(), Some("20260101T000000Z"));
+        assert!(parse(&["runs", "get"]).is_err(), "a run or --flow is required");
+        assert!(parse(&["explain", "r1", "--flow", "hello"]).is_err(), "not both");
+    }
 }

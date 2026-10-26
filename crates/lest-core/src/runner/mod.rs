@@ -23,7 +23,7 @@ use crate::paths::ensure_private_dir;
 use crate::project::Project;
 use crate::report::*;
 use crate::secrets::{Keyring, Redactor, Resolver};
-use crate::spec::{CleanupPolicy, Flow, Step, StepKind};
+use crate::spec::{CleanupPolicy, Flow, RetryOn, Step, StepKind};
 use crate::store::{Store, new_run_id};
 use crate::tools::{self, Need};
 
@@ -1059,6 +1059,29 @@ impl<'e> Runner<'e> {
         }
     }
 
+    /// Resolves one of a step's `facts`. A link that is not http or https
+    /// is dropped with a warning, keeping the value.
+    fn fact(
+        &self,
+        f: &crate::spec::FactSpec,
+        scope: &expr::Scope,
+        step_id: &str,
+    ) -> Result<crate::report::Fact, String> {
+        let value = f.value.as_deref().map(|t| expr::interpolate(t, scope)).transpose().map_err(|e| e.to_string())?;
+        let mut href = f.href.as_deref().map(|t| expr::interpolate(t, scope)).transpose().map_err(|e| e.to_string())?;
+        if let Some(h) = &href
+            && !crate::spec::is_web_link(h)
+        {
+            self.ctx.warn(format!("step {step_id}: fact {}: link dropped, not an http or https URL", f.label));
+            href = None;
+        }
+        Ok(crate::report::Fact {
+            label: f.label.clone(),
+            value: value.map(|v| self.ctx.redactor.redact(&v)),
+            href: href.map(|h| self.ctx.redactor.redact(&h)),
+        })
+    }
+
     /// Records the step's result in the frame, registers its cleanup,
     /// copies artifacts and emits `step_finished`.
     fn finish_step(
@@ -1081,6 +1104,15 @@ impl<'e> Runner<'e> {
                         r.artifacts.push(art);
                     }
                     Err(e) => self.ctx.warn(format!("step {}: {e}", r.id)),
+                }
+            }
+        }
+        if !step.facts.is_empty() && r.status != Some(StepStatus::Skipped) {
+            let scope = frame.scope(&self.ctx).with("self", self_json.clone());
+            for (i, f) in step.facts.iter().enumerate() {
+                match self.fact(f, &scope, &r.id) {
+                    Ok(fact) => r.facts.push(fact),
+                    Err(e) => self.ctx.warn(format!("step {}: facts[{i}] ({}): {e}", r.id, f.label)),
                 }
             }
         }
@@ -1324,8 +1356,11 @@ impl<'e> Runner<'e> {
             let mut retry_reason = None;
             if let Some(until) = retry.and_then(|r| r.until.as_ref()) {
                 if !outcome.passed && !outcome.cancelled {
-                    // The attempt itself failed (exit code, expect): retry.
-                    retry_reason = Some(attempt_reason(step.kind(), &outcome));
+                    // The attempt itself failed (exit code, expect): retry,
+                    // unless only an unmet condition may be retried.
+                    if retry.is_some_and(|r| r.on == RetryOn::Any) {
+                        retry_reason = Some(attempt_reason(step.kind(), &outcome));
+                    }
                 } else if !outcome.cancelled {
                     match expr::eval_bool(until, &self_scope) {
                         Ok(true) => {

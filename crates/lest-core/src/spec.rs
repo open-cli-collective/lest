@@ -415,6 +415,30 @@ pub struct Retry {
     /// out first, the step fails.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until: Option<String>,
+    /// Which attempts are retried. `any` (default) retries a failed attempt
+    /// and one whose `until` is still false; `until` retries only an attempt
+    /// that succeeded with `until` still false, so a failed call is never
+    /// repeated.
+    #[serde(default, skip_serializing_if = "RetryOn::is_any")]
+    pub on: RetryOn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetryOn {
+    /// Retry failed attempts and, with `until`, attempts whose condition is
+    /// still false.
+    #[default]
+    Any,
+    /// Retry only while `until` is false; the first failed attempt fails the
+    /// step.
+    Until,
+}
+
+impl RetryOn {
+    fn is_any(&self) -> bool {
+        *self == RetryOn::Any
+    }
 }
 
 fn one() -> u32 {

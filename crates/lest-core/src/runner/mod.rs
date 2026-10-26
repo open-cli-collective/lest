@@ -23,7 +23,7 @@ use crate::paths::ensure_private_dir;
 use crate::project::Project;
 use crate::report::*;
 use crate::secrets::{Keyring, Redactor, Resolver};
-use crate::spec::{CleanupPolicy, Flow, Step, StepKind};
+use crate::spec::{CleanupPolicy, Flow, RetryOn, Step, StepKind};
 use crate::store::{Store, new_run_id};
 use crate::tools::{self, Need};
 
@@ -1356,8 +1356,11 @@ impl<'e> Runner<'e> {
             let mut retry_reason = None;
             if let Some(until) = retry.and_then(|r| r.until.as_ref()) {
                 if !outcome.passed && !outcome.cancelled {
-                    // The attempt itself failed (exit code, expect): retry.
-                    retry_reason = Some(attempt_reason(step.kind(), &outcome));
+                    // The attempt itself failed (exit code, expect): retry,
+                    // unless only an unmet condition may be retried.
+                    if retry.is_some_and(|r| r.on == RetryOn::Any) {
+                        retry_reason = Some(attempt_reason(step.kind(), &outcome));
+                    }
                 } else if !outcome.cancelled {
                     match expr::eval_bool(until, &self_scope) {
                         Ok(true) => {

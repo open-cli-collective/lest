@@ -95,7 +95,7 @@ Fields every step accepts:
 | `notes` | Shown next to the step and with its failure. Write what a reader needs when this step is red. |
 | `when` | CEL condition; the step is skipped when false. |
 | `timeout` | Per attempt: `500ms`, `30s`, `5m`, or seconds. Defaults: 60s for `run`, 30s for `http`, 120s for `browser`. |
-| `retry` | `{attempts, delay, until}`. See [Retries and polling](#retries-and-polling). |
+| `retry` | `{attempts, delay, until, on}`. See [Retries and polling](#retries-and-polling). |
 | `continueOnError` | A failure does not stop the flow. It is reported as a warning, never hidden. |
 | `env` | Environment variables for the step. Values may contain `${{ }}`. |
 | `outputs` | Named values the step exposes, each a CEL expression over `self`. |
@@ -320,6 +320,15 @@ condition is true; otherwise it is retried, and the step fails when attempts
 run out. An expression error inside `until` (a field that does not exist
 yet) counts as "not yet". The report keeps the first attempt's start time
 and the total duration.
+
+Some calls must not be repeated after an error, such as a request to a
+system that may act on it twice or that limits retries. `on: until` polls
+only while the call succeeds and the condition is still false; the first
+failed attempt fails the step:
+
+```yaml
+retry: { attempts: 12, delay: 10s, until: self.outputs.status == 'posted', on: until }
+```
 
 To wait for a log line, poll whatever reads your logs and bound the window
 with the run's start, so a line from a previous run cannot satisfy it:

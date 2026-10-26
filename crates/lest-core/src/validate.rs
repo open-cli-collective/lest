@@ -354,6 +354,9 @@ fn check_step(ctx: &mut Ctx, step: &Step, at: &str, visible: &mut BTreeSet<Strin
                 ctx.warn(&format!("{at}.retry"), "until with a single attempt never retries");
             }
         }
+        if r.on == crate::spec::RetryOn::Until && r.until.is_none() {
+            ctx.err(&format!("{at}.retry.on"), "on: until needs an until condition");
+        }
         if kind == StepKind::Group || kind == StepKind::Flow {
             ctx.err(&format!("{at}.retry"), "retry applies to run, http, assert and browser steps");
         }
@@ -789,6 +792,21 @@ steps:
     assert: ["steps.fetch.status == 200", "vars.seats == 5 || inputs.plan == 'free'"]
 "#]);
         assert!(errors(&c).is_empty(), "{:?}", errors(&c));
+    }
+
+    #[test]
+    fn retry_on_until_needs_a_condition() {
+        let c = catalog(&[r#"
+apiVersion: lest/v1
+id: bad
+name: Bad
+steps:
+  - id: a
+    run: echo pending
+    retry: { attempts: 3, on: until }
+"#]);
+        let e = errors(&c).join("\n");
+        assert!(e.contains("on: until needs an until condition"), "{e}");
     }
 
     #[test]

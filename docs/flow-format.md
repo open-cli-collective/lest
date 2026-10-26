@@ -472,4 +472,5 @@ listed in the report next to the result.
 
 `lest run` exits 0 when the run passed, 1 when it failed, 2 for a usage or
 validation error, 3 when it errored, 4 when the flow is not found, and 130
-when cancelled.
+when cancelled. With several flows, the worst result decides
+the exit code ([Running in CI](ci.md#running-several-flows)).

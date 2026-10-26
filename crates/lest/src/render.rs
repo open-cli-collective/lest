@@ -246,24 +246,43 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     out
 }
 
+const XML_DECL: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+
 /// A JUnit XML rendering of a report, for CI systems.
 pub fn junit(report: &RunReport) -> String {
+    format!("{XML_DECL}{}", testsuite(report, ""))
+}
+
+/// A JUnit XML file with one test suite per run.
+pub fn junit_suites(reports: &[&RunReport]) -> String {
+    let mut out = format!("{XML_DECL}<testsuites>\n");
+    for r in reports {
+        out.push_str(&testsuite(r, "  "));
+    }
+    out.push_str("</testsuites>\n");
+    out
+}
+
+fn testsuite(report: &RunReport, indent: &str) -> String {
     fn esc(s: &str) -> String {
         s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
     }
     let leaves: Vec<_> = report.all_steps().into_iter().filter(|s| s.children.is_empty()).collect();
+    // A run that errored before its steps (preflight, inputs) is one more
+    // errored test case.
+    let preflight = usize::from(report.error.is_some());
     let failures = leaves.iter().filter(|s| s.status == Some(StepStatus::Failed)).count();
-    let errors = leaves.iter().filter(|s| s.status == Some(StepStatus::Errored)).count();
+    let errors = leaves.iter().filter(|s| s.status == Some(StepStatus::Errored)).count() + preflight;
     let skipped = leaves.iter().filter(|s| s.status == Some(StepStatus::Skipped)).count();
     let mut out = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuite name=\"{}\" tests=\"{}\" failures=\"{failures}\" errors=\"{errors}\" skipped=\"{skipped}\" time=\"{:.3}\">\n",
+        "{indent}<testsuite name=\"{}\" tests=\"{}\" failures=\"{failures}\" errors=\"{errors}\" skipped=\"{skipped}\" time=\"{:.3}\">\n",
         esc(&report.flow_id),
-        leaves.len(),
+        leaves.len() + preflight,
         report.duration_ms as f64 / 1000.0
     );
     for s in leaves {
         out.push_str(&format!(
-            "  <testcase classname=\"{}\" name=\"{}\" time=\"{:.3}\">",
+            "{indent}  <testcase classname=\"{}\" name=\"{}\" time=\"{:.3}\">",
             esc(&report.flow_id),
             esc(&s.id),
             s.duration_ms as f64 / 1000.0
@@ -281,12 +300,90 @@ pub fn junit(report: &RunReport) -> String {
     }
     if let Some(e) = &report.error {
         out.push_str(&format!(
-            "  <testcase classname=\"{}\" name=\"preflight\"><error message=\"{}\"/></testcase>\n",
+            "{indent}  <testcase classname=\"{}\" name=\"preflight\"><error message=\"{}\"/></testcase>\n",
             esc(&report.flow_id),
             esc(e)
         ));
     }
-    out.push_str("</testsuite>\n");
+    out.push_str(&format!("{indent}</testsuite>\n"));
+    out
+}
+
+/// One row per flow of a multi-flow run, for the terminal.
+pub fn runs_table(reports: &[&RunReport], not_run: &[&str]) -> String {
+    let mut rows: Vec<Vec<String>> = reports
+        .iter()
+        .map(|r| {
+            let (step, why) = failure(r);
+            vec![
+                r.flow_id.clone(),
+                r.result.as_str().to_string(),
+                duration(r.duration_ms),
+                r.run_id.clone(),
+                step.unwrap_or_default(),
+                why.unwrap_or_default(),
+            ]
+        })
+        .collect();
+    rows.extend(
+        not_run.iter().map(|id| {
+            vec![id.to_string(), "not run".into(), String::new(), String::new(), String::new(), String::new()]
+        }),
+    );
+    table(&["FLOW", "RESULT", "DURATION", "RUN", "FAILED_STEP", "WHY"], &rows)
+}
+
+/// The failing step and why it failed, or why the run errored outside a
+/// step.
+fn failure(r: &RunReport) -> (Option<String>, Option<String>) {
+    match r.first_failure() {
+        Some(s) => (Some(s.id.clone()), s.headline.clone().or_else(|| s.error.clone())),
+        None => (None, r.error.clone()),
+    }
+}
+
+/// A Markdown summary of the runs for a GitHub Actions job page. Reports
+/// are already redacted; cells are flattened to one line and capped.
+pub fn step_summary(reports: &[&RunReport], not_run: &[&str]) -> String {
+    fn cell(s: &str) -> String {
+        let flat = s.replace(['\n', '\r'], " ").replace('|', "\\|");
+        match flat.char_indices().nth(300) {
+            Some((i, _)) => format!("{}...", &flat[..i]),
+            None => flat,
+        }
+    }
+    let count = |res: RunResult| reports.iter().filter(|r| r.result == res).count();
+    let mut parts: Vec<String> = [RunResult::Passed, RunResult::Failed, RunResult::Errored, RunResult::Cancelled]
+        .into_iter()
+        .filter(|&res| count(res) > 0)
+        .map(|res| format!("{} {}", count(res), res.as_str()))
+        .collect();
+    if !not_run.is_empty() {
+        parts.push(format!("{} not run", not_run.len()));
+    }
+    if parts.is_empty() {
+        return "### Lest\n\nNo flows selected.\n\n".to_string();
+    }
+    let mut out = format!(
+        "### Lest: {}\n\n| Flow | Result | Duration | Run | Failed step | Why |\n| --- | --- | --- | --- | --- | --- |\n",
+        parts.join(", ")
+    );
+    for r in reports {
+        let (step, why) = failure(r);
+        out.push_str(&format!(
+            "| `{}` | {} | {} | `{}` | {} | {} |\n",
+            cell(&r.flow_id),
+            r.result.as_str(),
+            duration(r.duration_ms),
+            cell(&r.run_id),
+            step.map(|s| format!("`{}`", cell(&s))).unwrap_or_default(),
+            cell(why.as_deref().unwrap_or(""))
+        ));
+    }
+    for id in not_run {
+        out.push_str(&format!("| `{}` | not run | | | | |\n", cell(id)));
+    }
+    out.push('\n');
     out
 }
 

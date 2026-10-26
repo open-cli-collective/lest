@@ -1070,6 +1070,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "futures",
  "lest-core",
  "lest-server",
  "regex",

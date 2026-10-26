@@ -51,7 +51,8 @@ temporary directories and an in-memory keyring.
 ## Exit codes
 
 0 passed, 1 failed, 2 usage or validation error, 3 could not run
-(preflight, auth, configuration), 4 not found, 130 cancelled.
+(preflight, auth, configuration), 4 not found, 130 cancelled. A run of several
+flows exits with the worst: 130 over 3 over 1 over 0.
 
 ## Divergences from the shared CLI standards
 

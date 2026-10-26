@@ -279,6 +279,10 @@ pub struct Step {
     /// Files this step produces, copied into the run's artifacts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<ArtifactSpec>,
+    /// Named values and links to show with the step's result, evaluated
+    /// after it runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub facts: Vec<FactSpec>,
     /// A command that undoes this step, run after the flow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleanup: Option<Cleanup>,
@@ -424,6 +428,25 @@ pub struct ArtifactSpec {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FactSpec {
+    pub label: String,
+    /// Text to show; may contain `${{ }}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// An http or https link; may contain `${{ }}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+}
+
+/// Whether a fact's link may be shown as a link: http or https with
+/// something after the scheme.
+pub fn is_web_link(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    ["https://", "http://"].iter().any(|p| lower.strip_prefix(p).is_some_and(|rest| !rest.is_empty()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]

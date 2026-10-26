@@ -53,10 +53,10 @@ one in progress on the server, or the newest stored run.
   pass; clicking a row overrides that. Expanding a step shows its **Output**
   (live lines while it runs, the report's stdout and stderr after),
   **Details** (what ran, exit code, HTTP status, attempts, outputs, notes) and
-  **Artifacts**.
-- **Side panel:** the live browser view, the run's artifacts grouped by step
-  (images open in a lightbox, videos play in place), cleanups with their
-  status, and warnings.
+  **Artifacts** (the step's facts, then its files).
+- **Side panel:** the live browser view, the run's facts and artifacts
+  grouped by step (links open in a new tab, images open in a lightbox, videos
+  play in place), cleanups with their status, and warnings.
 
 ### Failures
 

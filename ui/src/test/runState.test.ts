@@ -6,6 +6,7 @@ import {
   emptyRun,
   firstFailure,
   reduceRuns,
+  runArtifacts,
   runBeats,
   topLevelOf,
   type RunState,
@@ -238,6 +239,19 @@ describe("reports", () => {
     expect(firstFailure(stored)?.id).toBe("page_login");
     // A stored run ignores late events.
     expect(applyEvent(stored, events[0]!)).toBe(stored);
+  });
+
+  it("lists steps that declared only facts with the run's artifacts", () => {
+    const withFacts: RunReport = {
+      ...report,
+      steps: steps.map((s) =>
+        s.id === "api_login" ? { ...s, facts: [{ label: "User", value: "u1", href: "https://example.com/u/1" }] } : s,
+      ),
+    };
+    const stored = applyReport(emptyRun(report.runId), withFacts);
+    const group = runArtifacts(stored).find((g) => g.step.id === "api_login");
+    expect(group?.artifacts).toEqual([]);
+    expect(group?.facts).toEqual([{ label: "User", value: "u1", href: "https://example.com/u/1" }]);
   });
 
   it("keeps the live tree when the report arrives after the events", () => {

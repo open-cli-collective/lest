@@ -381,6 +381,24 @@ fn check_step(ctx: &mut Ctx, step: &Step, at: &str, visible: &mut BTreeSet<Strin
     for (i, a) in step.artifacts.iter().enumerate() {
         ctx.check_template(&format!("{at}.artifacts[{i}]"), &a.path, WITH_SELF, &v);
     }
+    for (i, f) in step.facts.iter().enumerate() {
+        let at_f = format!("{at}.facts[{i}]");
+        if f.label.trim().is_empty() {
+            ctx.err(&at_f, "a fact needs a label");
+        }
+        if f.value.is_none() && f.href.is_none() {
+            ctx.err(&at_f, "a fact needs a value, an href, or both");
+        }
+        if let Some(t) = &f.value {
+            ctx.check_template(&format!("{at_f}.value"), t, WITH_SELF, &v);
+        }
+        if let Some(t) = &f.href {
+            ctx.check_template(&format!("{at_f}.href"), t, WITH_SELF, &v);
+            if !expr::has_template(t) && !crate::spec::is_web_link(t) {
+                ctx.err(&format!("{at_f}.href"), "links must be http or https URLs");
+            }
+        }
+    }
     if let Some(c) = &step.cleanup {
         if expr::has_template(&c.run) {
             ctx.err(&format!("{at}.cleanup.run"), "use cleanup.env to pass values into the command, not ${{ }}");
@@ -789,6 +807,35 @@ steps:
         let e = errors(&c).join("\n");
         assert!(e.contains("scripts cannot contain"), "{e}");
         assert!(e.contains("secrets can only be used"), "{e}");
+    }
+
+    #[test]
+    fn facts_need_a_value_or_link_and_web_links() {
+        let c = catalog(&[r#"
+apiVersion: lest/v1
+id: f
+name: F
+secrets: [token]
+steps:
+  - id: a
+    run: echo '{"id":"1"}'
+    outputs: { id: self.json.id }
+    facts:
+      - { label: Ok, value: "${{ self.outputs.id }}", href: "https://example.com/${{ self.outputs.id }}" }
+      - { label: Empty }
+      - { label: Bad link, href: "ftp://example.com/x" }
+      - { label: Secret, value: "${{ secrets.token }}" }
+      - { label: Later, value: "${{ steps.b.outputs.x }}" }
+  - id: b
+    run: "true"
+"#]);
+        let e = errors(&c);
+        assert_eq!(e.len(), 4, "{e:?}");
+        let e = e.join("\n");
+        assert!(e.contains("facts[1]: a fact needs a value, an href, or both"), "{e}");
+        assert!(e.contains("facts[2].href: links must be http or https URLs"), "{e}");
+        assert!(e.contains("facts[3].value"), "{e}");
+        assert!(e.contains("facts[4].value"), "{e}");
     }
 
     #[test]

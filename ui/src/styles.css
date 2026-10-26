@@ -1574,6 +1574,30 @@ a.card:hover {
   flex: none;
 }
 
+.facts {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  padding: 12px 12px 0;
+  font-size: 12px;
+}
+.fact {
+  display: contents;
+}
+.fact dt {
+  color: var(--text-3);
+}
+.fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+}
+.facts:only-child {
+  padding-bottom: 12px;
+}
+
 /* Side panel */
 
 .side {
@@ -1588,6 +1612,9 @@ a.card:hover {
 .side .artifacts {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 8px 12px 12px;
+}
+.side .facts {
+  padding: 8px 12px 0;
 }
 .side-group-label {
   padding: 10px 12px 0;

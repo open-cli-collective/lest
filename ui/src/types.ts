@@ -25,6 +25,14 @@ export interface Artifact {
   bytes: number;
 }
 
+/** A named value or link a step declared in `facts`. */
+export interface Fact {
+  label: string;
+  value?: string;
+  /** An http or https URL. */
+  href?: string;
+}
+
 export interface Beat {
   marker: string;
   atMs: number;
@@ -59,6 +67,7 @@ export interface StepReport {
   notes?: string;
   tolerated?: boolean;
   artifacts?: Artifact[];
+  facts?: Fact[];
   beats?: Beat[];
   children?: StepReport[];
 }

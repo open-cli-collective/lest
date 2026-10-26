@@ -143,6 +143,9 @@ impl Progress {
                 let pad = self.width.saturating_sub((indent.len() - 2) + step.name.chars().count());
                 let dur = if status == StepStatus::Skipped { String::new() } else { duration(step.duration_ms) };
                 eprintln!("{indent}{glyph} {}{} {:>7}  {detail}", step.name, " ".repeat(pad), s.dim(&dur));
+                for f in &step.facts {
+                    eprintln!("{}  {}", self.indent(&step.id), fact_line(s, f));
+                }
             }
             EventBody::StepArtifact { step_id, artifact } => {
                 eprintln!("{}  {} {}", self.indent(step_id), s.dim("artifact"), artifact.path);
@@ -162,6 +165,20 @@ impl Progress {
             _ => {}
         }
     }
+}
+
+/// `label: value <href>`, with whichever of value and href the fact has.
+fn fact_line(s: Style, f: &lest_core::report::Fact) -> String {
+    let mut line = s.dim(&format!("{}:", f.label));
+    if let Some(v) = &f.value {
+        line.push(' ');
+        line.push_str(v);
+    }
+    if let Some(h) = &f.href {
+        line.push(' ');
+        line.push_str(&s.dim(h));
+    }
+    line
 }
 
 pub fn result_word(style: Style, r: RunResult) -> String {
@@ -281,6 +298,22 @@ mod tests {
     fn table_is_pipe_delimited_with_dashes_for_empty() {
         let t = table(&["ID", "NAME"], &[vec!["a".into(), "".into()], vec!["long-id".into(), "x | y".into()]]);
         assert_eq!(t, "ID      | NAME\na       | -\nlong-id | x y\n");
+    }
+
+    #[test]
+    fn facts_show_their_value_and_link() {
+        let s = Style { color: false };
+        let f = |value: Option<&str>, href: Option<&str>| lest_core::report::Fact {
+            label: "Order".into(),
+            value: value.map(Into::into),
+            href: href.map(Into::into),
+        };
+        assert_eq!(
+            fact_line(s, &f(Some("42"), Some("https://example.com/o/42"))),
+            "Order: 42 https://example.com/o/42"
+        );
+        assert_eq!(fact_line(s, &f(Some("42"), None)), "Order: 42");
+        assert_eq!(fact_line(s, &f(None, Some("https://example.com"))), "Order: https://example.com");
     }
 
     #[test]

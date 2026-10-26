@@ -4,6 +4,7 @@
 import type {
   Artifact,
   Beat,
+  Fact,
   OutputStream,
   PlanNode,
   RunEvent,
@@ -386,11 +387,16 @@ export function runBeats(run: RunState): Beat[] {
   return allStepIds(run).flatMap((id) => run.steps[id]?.beats ?? []);
 }
 
-export function runArtifacts(run: RunState): { step: StepState; artifacts: Artifact[] }[] {
+/** The facts a step declared; they arrive with its finished report. */
+export function stepFacts(s: StepState): Fact[] {
+  return s.report?.facts ?? [];
+}
+
+export function runArtifacts(run: RunState): { step: StepState; artifacts: Artifact[]; facts: Fact[] }[] {
   return allStepIds(run)
     .map((id) => run.steps[id])
-    .filter((s): s is StepState => !!s && s.artifacts.length > 0)
-    .map((step) => ({ step, artifacts: step.artifacts }));
+    .filter((s): s is StepState => !!s && (s.artifacts.length > 0 || stepFacts(s).length > 0))
+    .map((step) => ({ step, artifacts: step.artifacts, facts: stepFacts(step) }));
 }
 
 // The app-wide state: runs keyed by id. An event only ever touches its own

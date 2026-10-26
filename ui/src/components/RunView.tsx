@@ -7,12 +7,13 @@ import {
   allStepIds,
   isLive,
   runArtifacts,
+  stepFacts,
   topLevelOf,
   type RunState,
   type StepState,
 } from "../store/runState";
 import { useRun } from "../store/store";
-import type { AiStatus, Artifact, Handoff, RunReport, StepReport, StepStatus, ToolReport } from "../types";
+import type { AiStatus, Artifact, Fact, Handoff, RunReport, StepReport, StepStatus, ToolReport } from "../types";
 import {
   agentConfigured,
   explainSlot,
@@ -394,10 +395,11 @@ type Tab = "output" | "details" | "artifacts";
 function StepBody({ s, depth, ctx }: { s: StepState; depth: number; ctx: Ctx }) {
   const [tab, setTab] = useState<Tab>("output");
   const failedHere = (s.status === "failed" || s.status === "errored") && s.report;
+  const facts = stepFacts(s);
   const tabs: { id: Tab; label: string; n?: number }[] = [
     { id: "output", label: "Output" },
     { id: "details", label: "Details" },
-    { id: "artifacts", label: "Artifacts", n: s.artifacts.length },
+    { id: "artifacts", label: "Artifacts", n: s.artifacts.length + facts.length },
   ];
   return (
     <div className="step-body" style={{ ["--depth" as string]: depth }}>
@@ -422,8 +424,13 @@ function StepBody({ s, depth, ctx }: { s: StepState; depth: number; ctx: Ctx }) 
         {tab === "output" && <OutputPane s={s} live={ctx.live} />}
         {tab === "details" && <DetailsPane s={s} />}
         {tab === "artifacts" &&
-          (s.artifacts.length ? (
-            <ArtifactGrid runId={ctx.run.runId} artifacts={s.artifacts} report={ctx.run.report} onOpen={ctx.openImage} />
+          (s.artifacts.length || facts.length ? (
+            <>
+              {facts.length > 0 && <FactList facts={facts} />}
+              {s.artifacts.length > 0 && (
+                <ArtifactGrid runId={ctx.run.runId} artifacts={s.artifacts} report={ctx.run.report} onOpen={ctx.openImage} />
+              )}
+            </>
           ) : (
             <div className="output-empty">This step saved no artifacts.</div>
           ))}
@@ -759,6 +766,28 @@ function syntheticReport(run: RunState, ctx: Ctx): RunReport {
 
 // Artifacts
 
+/** A step's facts: each label with its value, linked when it has an href. */
+export function FactList({ facts }: { facts: Fact[] }) {
+  return (
+    <dl className="facts">
+      {facts.map((f, i) => (
+        <div key={`${f.label}-${i}`} className="fact">
+          <dt>{f.label}</dt>
+          <dd>
+            {f.href ? (
+              <a href={f.href} target="_blank" rel="noopener noreferrer">
+                {f.value ?? f.href}
+              </a>
+            ) : (
+              f.value
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function ArtifactGrid({
   runId,
   artifacts,
@@ -840,7 +869,7 @@ function SidePanel({ ctx }: { ctx: Ctx }) {
       <div className="panel">
         <div className="panel-head">
           Artifacts
-          <span className="right">{groups.reduce((n, g) => n + g.artifacts.length, 0) || ""}</span>
+          <span className="right">{groups.reduce((n, g) => n + g.artifacts.length + g.facts.length, 0) || ""}</span>
         </div>
         {groups.length ? (
           groups.map((g) => (
@@ -849,7 +878,10 @@ function SidePanel({ ctx }: { ctx: Ctx }) {
                 {g.step.name}
                 {g.step.name !== g.step.id && <span className="mono">{g.step.id}</span>}
               </div>
-              <ArtifactGrid runId={run.runId} artifacts={g.artifacts} report={run.report} onOpen={ctx.openImage} compact />
+              {g.facts.length > 0 && <FactList facts={g.facts} />}
+              {g.artifacts.length > 0 && (
+                <ArtifactGrid runId={run.runId} artifacts={g.artifacts} report={run.report} onOpen={ctx.openImage} compact />
+              )}
             </div>
           ))
         ) : (

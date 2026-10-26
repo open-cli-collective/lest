@@ -594,6 +594,78 @@ steps:
 }
 
 #[tokio::test]
+async fn retry_on_until_stops_at_the_first_failed_attempt() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: poll
+name: Poll
+steps:
+  - id: poll
+    run: 'n=$(cat "$LEST_RUN_DIR/n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$LEST_RUN_DIR/n"; [ $n -ge 2 ] && { echo "partner said no" >&2; exit 4; }; echo pending'
+    retry: { attempts: 5, delay: 10ms, until: "self.stdout.trim() == 'ready'", on: until }
+"#,
+    )]);
+    let (r, events) = run(&f.engine(&[]), "poll", &[]).await;
+    let s = r.find_step("poll").unwrap();
+    assert_eq!(s.status, Some(StepStatus::Failed), "{s:#?}");
+    assert_eq!(s.attempts, 2, "the failed second attempt must not be repeated");
+    assert_eq!(s.exit_code, Some(4));
+    let headline = s.headline.clone().unwrap_or_default();
+    assert!(headline.contains("partner said no"), "{headline}");
+    let retries = events.iter().filter(|e| matches!(e.body, EventBody::StepRetrying { .. })).count();
+    assert_eq!(retries, 1);
+}
+
+#[tokio::test]
+async fn retry_on_until_keeps_polling_while_the_condition_is_false() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: poll
+name: Poll
+steps:
+  - id: poll
+    run: 'n=$(cat "$LEST_RUN_DIR/n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$LEST_RUN_DIR/n"; [ $n -ge 3 ] && echo ready || echo pending'
+    retry: { attempts: 5, delay: 10ms, until: "self.stdout.trim() == 'ready'", on: until }
+  - id: exhaust
+    run: echo pending
+    retry: { attempts: 2, delay: 10ms, until: "self.stdout.trim() == 'ready'", on: until }
+    continueOnError: true
+"#,
+    )]);
+    let (r, _) = run(&f.engine(&[]), "poll", &[]).await;
+    let poll = r.find_step("poll").unwrap();
+    assert_eq!(poll.status, Some(StepStatus::Passed), "{poll:#?}");
+    assert_eq!(poll.attempts, 3);
+    let ex = r.find_step("exhaust").unwrap();
+    assert_eq!(ex.status, Some(StepStatus::Failed));
+    assert_eq!(ex.attempts, 2);
+}
+
+#[tokio::test]
+async fn retry_by_default_still_repeats_a_failed_attempt() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: poll
+name: Poll
+steps:
+  - id: poll
+    run: 'n=$(cat "$LEST_RUN_DIR/n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$LEST_RUN_DIR/n"; [ $n -eq 1 ] && exit 4; echo ready'
+    retry: { attempts: 3, delay: 10ms, until: "self.stdout.trim() == 'ready'" }
+"#,
+    )]);
+    let (r, _) = run(&f.engine(&[]), "poll", &[]).await;
+    let s = r.find_step("poll").unwrap();
+    assert_eq!(s.status, Some(StepStatus::Passed), "{s:#?}");
+    assert_eq!(s.attempts, 2);
+}
+
+#[tokio::test]
 async fn resume_refuses_a_failed_earlier_step_and_other_environments() {
     let f = Fixture::new(&[(
         "a.lest.yaml",
@@ -646,6 +718,44 @@ steps:
     assert_eq!(arts.len(), 2);
     let text = std::fs::read_to_string(engine.store.run_dir("art", &r.run_id).join(&arts[0].path)).unwrap();
     assert_eq!(text.trim(), "token=[redacted:token]");
+}
+
+#[tokio::test]
+async fn facts_name_what_a_step_made_and_link_to_it() {
+    let f = Fixture::new(&[(
+        "a.lest.yaml",
+        r#"
+apiVersion: lest/v1
+id: facts
+name: Facts
+secrets: [token]
+steps:
+  - id: create
+    env: { TOKEN: "${{ secrets.token }}" }
+    run: 'echo "{\"id\": \"42\", \"key\": \"$TOKEN\"}"'
+    outputs: { id: self.json.id, key: self.json.key }
+    facts:
+      - { label: Order, value: "${{ self.outputs.id }}", href: "https://shop.example.com/orders/${{ self.outputs.id }}" }
+      - { label: Key, value: "${{ self.outputs.key }}" }
+      - { label: Local, value: here, href: "file:///etc/${{ self.outputs.id }}" }
+  - id: never
+    when: "false"
+    run: "true"
+    facts: [{ label: Skipped, value: x }]
+"#,
+    )]);
+    let engine = f.engine(&[("token", "very-secret-token")]);
+    let (r, _) = run(&engine, "facts", &[]).await;
+    assert_eq!(r.result, RunResult::Passed, "{:?}", r.error);
+    let facts = &r.find_step("create").unwrap().facts;
+    assert_eq!(facts.len(), 3);
+    assert_eq!(facts[0].value.as_deref(), Some("42"));
+    assert_eq!(facts[0].href.as_deref(), Some("https://shop.example.com/orders/42"));
+    assert_eq!(facts[1].value.as_deref(), Some("[redacted:token]"));
+    assert_eq!(facts[2].value.as_deref(), Some("here"));
+    assert_eq!(facts[2].href, None);
+    assert!(r.warnings.iter().any(|w| w.contains("Local") && w.contains("http")), "{:?}", r.warnings);
+    assert!(r.find_step("never").unwrap().facts.is_empty());
 }
 
 #[tokio::test]

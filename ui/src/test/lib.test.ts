@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildContext, rerunCommand } from "../lib/context";
 import { formatDuration, shellQuote, timeAgo } from "../lib/format";
 import { parseBlocks, parseInline, plainFirstLine } from "../lib/markdown";
+import { formInputs } from "../lib/inputs";
 import { tagFilters } from "../lib/tags";
 import type { RunEvent, RunReport, StepReport } from "../types";
 import wrongPassword from "./fixtures/wrong-password.json";
@@ -113,5 +114,25 @@ describe("tagFilters", () => {
   it("shows everything when expanded or under the limit", () => {
     expect(tagFilters(flows, [], true, 2).shown).toEqual(["api", "smoke", "slow", "ui", "zeta"]);
     expect(tagFilters(flows, [], false, 10).hidden).toBe(0);
+  });
+});
+
+describe("run form inputs", () => {
+  const inputs = [
+    { name: "plan", required: false },
+    { name: "tenant", required: true, advanced: true, default: "acme" },
+    { name: "region", required: false, advanced: true },
+  ];
+
+  it("keeps advanced inputs behind More options", () => {
+    const closed = formInputs(inputs, false);
+    expect(closed.shown.map((i) => i.name)).toEqual(["plan"]);
+    expect(closed.hidden).toBe(2);
+  });
+
+  it("shows every input once expanded, in declared order", () => {
+    const open = formInputs(inputs, true);
+    expect(open.shown.map((i) => i.name)).toEqual(["plan", "tenant", "region"]);
+    expect(open.hidden).toBe(0);
   });
 });

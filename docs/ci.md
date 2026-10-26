@@ -132,7 +132,8 @@ CI matrix.
   views. A run that could not start is one errored `preflight` test case.
 - **JSON:** `-o <path>` writes the full report (`lest schema report`
   describes it).
-- **Evidence:** `lest bundle <run> -o evidence.zip` zips the report and the
+- **Evidence:** `lest bundle <run> -o evidence.zip` (or `--flow <id>` for
+  the flow's newest run) zips the report and the
   files it lists (step artifacts, service logs, the demo cut) with a
   `manifest.json` of SHA-256 checksums, ready to attach to a ticket, release
   or audit. Anything else a step wrote into the run directory stays out. Text

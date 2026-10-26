@@ -282,6 +282,9 @@ fn check_names(ctx: &mut Ctx, flow: &Flow) {
         if flow.vars.contains_key(&input.name) {
             ctx.err(&at, "an input and a var share this name");
         }
+        if input.advanced && input.required && input.default.is_none() {
+            ctx.err(&at, "an advanced input needs a default when it is required, so the run form can start without it");
+        }
         if !input.choices.is_empty() {
             let values: BTreeSet<&str> = input.choices.iter().map(|c| c.value.as_str()).collect();
             if values.len() != input.choices.len() {
@@ -354,6 +357,9 @@ fn check_step(ctx: &mut Ctx, step: &Step, at: &str, visible: &mut BTreeSet<Strin
                 ctx.warn(&format!("{at}.retry"), "until with a single attempt never retries");
             }
         }
+        if r.on == crate::spec::RetryOn::Until && r.until.is_none() {
+            ctx.err(&format!("{at}.retry.on"), "on: until needs an until condition");
+        }
         if kind == StepKind::Group || kind == StepKind::Flow {
             ctx.err(&format!("{at}.retry"), "retry applies to run, http, assert and browser steps");
         }
@@ -380,6 +386,24 @@ fn check_step(ctx: &mut Ctx, step: &Step, at: &str, visible: &mut BTreeSet<Strin
     }
     for (i, a) in step.artifacts.iter().enumerate() {
         ctx.check_template(&format!("{at}.artifacts[{i}]"), &a.path, WITH_SELF, &v);
+    }
+    for (i, f) in step.facts.iter().enumerate() {
+        let at_f = format!("{at}.facts[{i}]");
+        if f.label.trim().is_empty() {
+            ctx.err(&at_f, "a fact needs a label");
+        }
+        if f.value.is_none() && f.href.is_none() {
+            ctx.err(&at_f, "a fact needs a value, an href, or both");
+        }
+        if let Some(t) = &f.value {
+            ctx.check_template(&format!("{at_f}.value"), t, WITH_SELF, &v);
+        }
+        if let Some(t) = &f.href {
+            ctx.check_template(&format!("{at_f}.href"), t, WITH_SELF, &v);
+            if !expr::has_template(t) && !crate::spec::is_web_link(t) {
+                ctx.err(&format!("{at_f}.href"), "links must be http or https URLs");
+            }
+        }
     }
     if let Some(c) = &step.cleanup {
         if expr::has_template(&c.run) {
@@ -774,6 +798,40 @@ steps:
     }
 
     #[test]
+    fn an_advanced_required_input_needs_a_default() {
+        let c = catalog(&[r#"
+apiVersion: lest/v1
+id: adv
+name: Advanced
+inputs:
+  - { name: tenant, required: true, advanced: true }
+  - { name: region, required: true, advanced: true, default: eu }
+  - { name: note, advanced: true }
+steps:
+  - id: a
+    run: echo hi
+"#]);
+        let e = errors(&c);
+        assert_eq!(e.len(), 1, "{e:?}");
+        assert!(e[0].starts_with("inputs.tenant: an advanced input needs a default"), "{e:?}");
+    }
+
+    #[test]
+    fn retry_on_until_needs_a_condition() {
+        let c = catalog(&[r#"
+apiVersion: lest/v1
+id: bad
+name: Bad
+steps:
+  - id: a
+    run: echo pending
+    retry: { attempts: 3, on: until }
+"#]);
+        let e = errors(&c).join("\n");
+        assert!(e.contains("on: until needs an until condition"), "{e}");
+    }
+
+    #[test]
     fn rejects_templates_in_scripts_and_secrets_in_assertions() {
         let c = catalog(&[r#"
 apiVersion: lest/v1
@@ -789,6 +847,35 @@ steps:
         let e = errors(&c).join("\n");
         assert!(e.contains("scripts cannot contain"), "{e}");
         assert!(e.contains("secrets can only be used"), "{e}");
+    }
+
+    #[test]
+    fn facts_need_a_value_or_link_and_web_links() {
+        let c = catalog(&[r#"
+apiVersion: lest/v1
+id: f
+name: F
+secrets: [token]
+steps:
+  - id: a
+    run: echo '{"id":"1"}'
+    outputs: { id: self.json.id }
+    facts:
+      - { label: Ok, value: "${{ self.outputs.id }}", href: "https://example.com/${{ self.outputs.id }}" }
+      - { label: Empty }
+      - { label: Bad link, href: "ftp://example.com/x" }
+      - { label: Secret, value: "${{ secrets.token }}" }
+      - { label: Later, value: "${{ steps.b.outputs.x }}" }
+  - id: b
+    run: "true"
+"#]);
+        let e = errors(&c);
+        assert_eq!(e.len(), 4, "{e:?}");
+        let e = e.join("\n");
+        assert!(e.contains("facts[1]: a fact needs a value, an href, or both"), "{e}");
+        assert!(e.contains("facts[2].href: links must be http or https URLs"), "{e}");
+        assert!(e.contains("facts[3].value"), "{e}");
+        assert!(e.contains("facts[4].value"), "{e}");
     }
 
     #[test]

@@ -63,7 +63,8 @@ jobs:
         flow: ${{ fromJSON(needs.select.outputs.flows) }}
     steps:
       # checkout, Node, Playwright and lest as above
-      - run: lest run "${{ matrix.flow.id }}" --non-interactive --junit junit.xml
+      - env: { FLOW: "${{ matrix.flow.id }}" }
+        run: lest run "$FLOW" --non-interactive --junit junit.xml
 ```
 
 `lest list --json` prints the same shape for a tag or name filter. Both print
